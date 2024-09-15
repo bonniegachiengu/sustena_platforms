@@ -3,6 +3,8 @@ package blockchain
 import (
 	"errors"
 	"sync"
+	"crypto/sha256"
+	"encoding/hex"
 )
 
 type Blockchain struct {
@@ -61,4 +63,18 @@ func (bc *Blockchain) GetBalance(address string) int64 {
 		}
 	}
 	return balance
+}
+
+// Add this method to your Blockchain struct
+func (bc *Blockchain) DeployContract(bytecode []byte) (string, error) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	// Generate a simple contract address (this is a simplified example)
+	hash := sha256.Sum256(bytecode)
+	address := hex.EncodeToString(hash[:])
+
+	// In a real implementation, you'd store the contract somewhere
+	// For now, we'll just return the address
+	return address, nil
 }

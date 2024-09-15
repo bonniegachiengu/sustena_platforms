@@ -1,0 +1,7 @@
+networkConfig:
+  port: 8080
+  protocol: "tcp"
+
+apiConfig:
+  port: 3000
+  host: "localhost"

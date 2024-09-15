@@ -1,3 +1,45 @@
 package config
 
-// Add configuration management here
+import (
+	"fmt"
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	NetworkConfig NetworkConfig `mapstructure:"networkConfig"`
+	APIConfig     APIConfig     `mapstructure:"apiConfig"`
+	// Add other configuration structs as needed
+}
+
+type NetworkConfig struct {
+	ListenAddr     string   `json:"listen_addr"`
+	BootstrapPeers []string `json:"bootstrap_peers"`
+	Port     int    `mapstructure:"port"`
+	Protocol string `mapstructure:"protocol"`
+}
+
+type APIConfig struct {
+	Port int    `mapstructure:"port"`
+	Host string `mapstructure:"host"`
+}
+
+func LoadConfig() (*Config, error) {
+	viper.SetConfigName("config")       // Name of config file (without extension)
+	viper.SetConfigType("yaml")         // REQUIRED if the config file does not have the extension in the name
+	viper.AddConfigPath(".")            // Look for config in the working directory
+	viper.AddConfigPath("./config")     // Look for config in a subdirectory named "config"
+	viper.AddConfigPath("../config")    // Look for config in the parent directory's config folder
+
+	err := viper.ReadInConfig()         // Find and read the config file
+	if err != nil {                     // Handle errors reading the config file
+		return nil, fmt.Errorf("fatal error config file: %w", err)
+	}
+
+	var config Config
+	err = viper.Unmarshal(&config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
