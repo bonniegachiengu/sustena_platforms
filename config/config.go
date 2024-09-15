@@ -23,6 +23,8 @@ type APIConfig struct {
 	Host string `mapstructure:"host"`
 }
 
+var globalConfig *Config
+
 func LoadConfig() (*Config, error) {
 	viper.SetConfigName("config")       // Name of config file (without extension)
 	viper.SetConfigType("yaml")         // REQUIRED if the config file does not have the extension in the name
@@ -42,4 +44,16 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func GetNetworkConfig() NetworkConfig {
+	if globalConfig == nil {
+		var err error
+		globalConfig, err = LoadConfig()
+		if err != nil {
+			// Handle error, perhaps log it and return a default config
+			return NetworkConfig{}
+		}
+	}
+	return globalConfig.NetworkConfig
 }

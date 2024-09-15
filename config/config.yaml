@@ -1,6 +1,7 @@
 networkConfig:
   port: 8080
   protocol: "tcp"
+  listen_addr: "/ip4/0.0.0.0/tcp/4001"
 
 apiConfig:
   port: 3000
