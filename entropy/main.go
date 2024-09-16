@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"github.com/bonniegachiengu/sustena_platforms/entropy/blockchain"
-	"github.com/bonniegachiengu/sustena_platforms/entropy/consensus"
 )
 
 func main() {
@@ -14,60 +13,49 @@ func main() {
 	// Initialize blockchain
 	bc := blockchain.NewBlockchain()
 
-	// Initialize Proof of Stake consensus
-	pos := consensus.NewProofOfStake()
+	// Create some accounts
+	alice, _ := bc.CreateAccount("Alice")
+	bob, _ := bc.CreateAccount("Bob")
+	charlie, _ := bc.CreateAccount("Charlie")
 
-	// Add some validators
-	pos.AddValidator("Validator1", 100)
-	pos.AddValidator("Validator2", 200)
-	pos.AddValidator("Validator3", 300)
+	// Add some initial balance to Alice's account
+	bc.Transfer("GenesisValidator", alice.Address, 1000, 0)
 
-	// Create and add some blocks
-	for i := 1; i <= 5; i++ {
-		// Create a sample transaction
-		tx := blockchain.Transaction{
-			From:   fmt.Sprintf("User%d", i),
-			To:     fmt.Sprintf("User%d", i+1),
-			Amount: int64(i * 10),
-		}
-
-		// Select a validator
-		validator := pos.SelectValidator()
-		stake := pos.Validators[validator]
-
-		// Create a new block
-		lastBlock := bc.GetLastBlock()
-		newBlock := blockchain.NewBlock(
-			lastBlock.Index+1,
-			[]blockchain.Transaction{tx},
-			lastBlock.Hash,
-			validator,
-			stake,
-		)
-
-		// Add the block to the blockchain
-		err := bc.AddBlock(newBlock)
-		if err != nil {
-			log.Printf("Error adding block: %v", err)
-			continue
-		}
-
-		fmt.Printf("Block %d added by validator %s with stake %d\n", i, newBlock.Validator, newBlock.Stake)
-
-		// Validate the block
-		if pos.Validate(newBlock) {
-			fmt.Println("Block is valid")
-		} else {
-			fmt.Println("Block is invalid")
-		}
-
-		fmt.Println("--------------------")
+	// Alice stakes some of her balance
+	err := bc.AddStake(alice.Address, 500)
+	if err != nil {
+		log.Printf("Error adding stake: %v", err)
 	}
+
+	// Bob stakes some of his balance
+	err = bc.Transfer("GenesisValidator", bob.Address, 800, 0)
+	if err != nil {
+		log.Printf("Error transferring to Bob: %v", err)
+	}
+	err = bc.AddStake(bob.Address, 300)
+	if err != nil {
+		log.Printf("Error adding stake for Bob: %v", err)
+	}
+
+	// Perform a transaction
+	err = bc.Transfer(alice.Address, charlie.Address, 200, 10)
+	if err != nil {
+		log.Printf("Error transferring: %v", err)
+	}
+
+	// Print final balances and stakes
+	aliceBalance, _ := bc.GetBalance(alice.Address)
+	bobBalance, _ := bc.GetBalance(bob.Address)
+	charlieBalance, _ := bc.GetBalance(charlie.Address)
+
+	fmt.Printf("Alice's balance: %d, stake: %d\n", aliceBalance, bc.Accounts[alice.Address].Stake)
+	fmt.Printf("Bob's balance: %d, stake: %d\n", bobBalance, bc.Accounts[bob.Address].Stake)
+	fmt.Printf("Charlie's balance: %d, stake: %d\n", charlieBalance, bc.Accounts[charlie.Address].Stake)
 
 	// Print the final state of the blockchain
 	fmt.Println("Final Blockchain State:")
 	for _, block := range bc.Chain {
-		fmt.Printf("Block %d: Hash: %s, Validator: %s, Stake: %d\n", 
-			block.Index, block.Hash[:10], block.Validator, block.Stake)
+		fmt.Printf("Block %d: Hash: %s, Validator: %s, Stake: %d, Timestamp: %d\n", 
+			block.Index, block.Hash[:10], block.Validator, block.Stake, block.Timestamp)
 	}
 }

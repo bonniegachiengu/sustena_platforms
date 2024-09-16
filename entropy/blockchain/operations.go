@@ -12,8 +12,8 @@ func NewBlockchainOperations(bc *Blockchain) *BlockchainOperations {
     return &BlockchainOperations{BC: bc}
 }
 
-func (ops *BlockchainOperations) CreateNewAccount() (string, error) {
-    account, err := ops.BC.CreateAccount()
+func (ops *BlockchainOperations) CreateNewAccount(name string) (string, error) {
+    account, err := ops.BC.CreateAccount(name)
     if err != nil {
         return "", err
     }
@@ -28,9 +28,9 @@ func (ops *BlockchainOperations) GetAccountBalance(address string) (float64, err
     return float64(balance) / JouleToNanojoule, nil
 }
 
-func (ops *BlockchainOperations) TransferJoules(from, to string, amount float64) error {
+func (ops *BlockchainOperations) TransferJoules(from, to string, amount float64, fee int64) error {
     amountNanojoules := int64(amount * JouleToNanojoule)
-    return ops.BC.Transfer(from, to, amountNanojoules)
+    return ops.BC.Transfer(from, to, amountNanojoules, fee)
 }
 
 func (ops *BlockchainOperations) MintInitialSupply(address string, amount float64) error {
@@ -52,7 +52,7 @@ func (ops *BlockchainOperations) PrintBlockchainState() {
     }
 
     fmt.Println("Account Balances:")
-    for address, account := range ops.BC.Accounts {
-        fmt.Printf("  %s: %.6f Joules\n", address, float64(account.Balance)/JouleToNanojoule)
+    for _, account := range ops.BC.GetAccounts() {
+        fmt.Printf("  %s (%s): %.6f Joules\n", account.Name, account.Address, float64(account.Balance)/JouleToNanojoule)
     }
 }

@@ -1,106 +1,71 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
+	"net/http"
 
 	"github.com/bonniegachiengu/sustena_platforms/entropy/blockchain"
-	"github.com/bonniegachiengu/sustena_platforms/entropy/consensus"
-	"github.com/bonniegachiengu/sustena_platforms/entropy/network"
-	"github.com/bonniegachiengu/sustena_platforms/symmetry/interpreter"
-	"github.com/bonniegachiengu/sustena_platforms/symmetry/vm"
-	"github.com/bonniegachiengu/sustena_platforms/embroidery/compiler"
-	"github.com/bonniegachiengu/sustena_platforms/embroidery/parser"
-	"github.com/bonniegachiengu/sustena_platforms/config"
 )
 
+var bc = blockchain.NewBlockchain()
+
 func main() {
-	fmt.Println("Welcome to Sustena Platforms CLI")
+	http.HandleFunc("/create_account", createAccountHandler)
+	http.HandleFunc("/transfer", transferHandler)
+	http.HandleFunc("/get_balance", getBalanceHandler)
+	http.HandleFunc("/get_chain", getChainHandler)
+	http.HandleFunc("/get_accounts", getAccountsHandler)
 
-	// Initialize components
-	cfg, _ := config.LoadConfig()
-	bc := blockchain.NewBlockchain()
-	_ = consensus.NewProofOfStake()
-	_, _ = network.NewP2PNetwork(cfg.NetworkConfig.ListenAddr)
-	interpreter := interpreter.NewInterpreter()
-	_ = vm.NewVM()
-	_ = compiler.NewCompiler()
-	_ = parser.NewParser()
-
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		fmt.Print("> ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input == "exit" {
-			break
-		}
-
-		parts := strings.Split(input, " ")
-		command := parts[0]
-
-		switch command {
-		case "help":
-			printHelp()
-		case "balance":
-			if len(parts) < 2 {
-				fmt.Println("Usage: balance <address>")
-				continue
-			}
-			balance, err := bc.GetBalance(parts[1])
-			if err != nil {
-				fmt.Printf("Error getting balance: %v\n", err)
-				continue
-			}
-			fmt.Printf("Balance of %s: %d\n", parts[1], balance)
-		case "send":
-			if len(parts) < 4 {
-				fmt.Println("Usage: send <from> <to> <amount>")
-				continue
-			}
-			// Implement send transaction logic
-			fmt.Println("Transaction sent (not implemented)")
-		case "deploy":
-			if len(parts) < 2 {
-				fmt.Println("Usage: deploy <contract_code>")
-				continue
-			}
-			// Implement contract deployment logic
-			fmt.Println("Contract deployed (not implemented)")
-		case "run":
-			if len(parts) < 2 {
-				fmt.Println("Usage: run <symmetry_code>")
-				continue
-			}
-			code := strings.Join(parts[1:], " ")
-			err := interpreter.Interpret(code)
-			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-			} else {
-				fmt.Println("Code executed successfully")
-			}
-		case "peers":
-			// Implement peer listing logic
-			fmt.Println("Connected peers (not implemented)")
-		default:
-			fmt.Println("Unknown command. Type 'help' for available commands.")
-		}
+	fmt.Println("Server starting on :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Printf("Error starting server: %v\n", err)
 	}
-
-	fmt.Println("Goodbye!")
 }
 
-func printHelp() {
-	fmt.Println("Available commands:")
-	fmt.Println("  help                - Show this help message")
-	fmt.Println("  balance <address>   - Get balance of an address")
-	fmt.Println("  send <from> <to> <amount> - Send transaction")
-	fmt.Println("  deploy <contract_code> - Deploy a smart contract")
-	fmt.Println("  run <symmetry_code> - Run Symmetry code")
-	fmt.Println("  peers               - List connected peers")
-	fmt.Println("  exit                - Exit the CLI")
+func createAccountHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	account, err := bc.CreateAccount(req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(account)
+}
+
+func transferHandler(w http.ResponseWriter, r *http.Request) {
+	var tx blockchain.Transaction
+	if err := json.NewDecoder(r.Body).Decode(&tx); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := bc.Transfer(tx.From, tx.To, tx.Amount, tx.Fee); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func getBalanceHandler(w http.ResponseWriter, r *http.Request) {
+	address := r.URL.Query().Get("address")
+	balance, err := bc.GetBalance(address)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(balance)
+}
+
+func getChainHandler(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(bc.GetChain())
+}
+
+func getAccountsHandler(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(bc.GetAccounts())
 }

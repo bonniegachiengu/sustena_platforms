@@ -28,6 +28,7 @@ type Transaction struct {
 	To     string
 	Amount int64 // Amount in Nanojoules
 	Nonce  uint64
+	Fee    int64
 }
 
 func NewBlock(index int64, transactions []Transaction, prevHash string, validator string, stake int64) *Block {

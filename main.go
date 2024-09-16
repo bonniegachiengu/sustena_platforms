@@ -3,54 +3,34 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/bonniegachiengu/sustena_platforms/entropy/blockchain"
+	"github.com/bonniegachiengu/sustena_platforms/api"
 )
 
 func main() {
 	bc := blockchain.NewBlockchain()
 	ops := blockchain.NewBlockchainOperations(bc)
 
-	// Create some accounts
-	alice, err := ops.CreateNewAccount()
-	if err != nil {
-		log.Fatalf("Failed to create account for Alice: %v", err)
-	}
-	bob, err := ops.CreateNewAccount()
-	if err != nil {
-		log.Fatalf("Failed to create account for Bob: %v", err)
-	}
+	// Initialize API server
+	server := api.NewServer(api.APIConfig{
+		Blockchain: bc,
+		Operations: ops,
+	})
 
-	// Mint initial supply for Alice
-	err = ops.MintInitialSupply(alice, 1000)
-	if err != nil {
-		log.Fatalf("Failed to mint initial supply for Alice: %v", err)
-	}
+	// Set up routes
+	http.HandleFunc("/create_account", server.CreateAccountHandler)
+	http.HandleFunc("/transfer", server.TransferHandler)
+	http.HandleFunc("/get_balance", server.GetBalanceHandler)
+	http.HandleFunc("/get_chain", server.GetChainHandler)
+	http.HandleFunc("/get_accounts", server.GetAccountsHandler)
 
-	// Print initial state
-	fmt.Println("Initial State:")
-	ops.PrintBlockchainState()
+	// Serve static files for the UI
+	fs := http.FileServer(http.Dir("./blockchain-ui/build"))
+	http.Handle("/", fs)
 
-	// Perform a transaction
-	err = ops.TransferJoules(alice, bob, 50)
-	if err != nil {
-		log.Fatalf("Failed to transfer Joules: %v", err)
-	}
-
-	// Print final state
-	fmt.Println("\nFinal State:")
-	ops.PrintBlockchainState()
-
-	// Get account balances
-	aliceBalance, err := ops.GetAccountBalance(alice)
-	if err != nil {
-		log.Fatalf("Failed to get Alice's balance: %v", err)
-	}
-	bobBalance, err := ops.GetAccountBalance(bob)
-	if err != nil {
-		log.Fatalf("Failed to get Bob's balance: %v", err)
-	}
-
-	fmt.Printf("\nAlice's balance: %.6f Joules\n", aliceBalance)
-	fmt.Printf("Bob's balance: %.6f Joules\n", bobBalance)
+	// Start the server
+	fmt.Println("Server starting on :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
