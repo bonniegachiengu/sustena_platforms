@@ -51,7 +51,11 @@ func main() {
 				fmt.Println("Usage: balance <address>")
 				continue
 			}
-			balance := bc.GetBalance(parts[1])
+			balance, err := bc.GetBalance(parts[1])
+			if err != nil {
+				fmt.Printf("Error getting balance: %v\n", err)
+				continue
+			}
 			fmt.Printf("Balance of %s: %d\n", parts[1], balance)
 		case "send":
 			if len(parts) < 4 {

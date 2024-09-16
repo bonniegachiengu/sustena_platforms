@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+const (
+	JouleToMicrojoule = 1000000
+	JouleToNanojoule  = 1000000000
+	JouleToPicojoule  = 1000000000000
+)
+
 type Block struct {
 	Index        int64
 	Timestamp    int64
@@ -20,7 +26,8 @@ type Block struct {
 type Transaction struct {
 	From   string
 	To     string
-	Amount int64 // Amount in Joules
+	Amount int64 // Amount in Nanojoules
+	Nonce  uint64
 }
 
 func NewBlock(index int64, transactions []Transaction, prevHash string, validator string, stake int64) *Block {
