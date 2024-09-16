@@ -2,6 +2,7 @@ package blockchain
 
 import (
     "fmt"
+    "errors"
 )
 
 type BlockchainOperations struct {
@@ -25,17 +26,17 @@ func (ops *BlockchainOperations) GetAccountBalance(address string) (float64, err
     if err != nil {
         return 0, err
     }
-    return float64(balance) / JouleToNanojoule, nil
+    return float64(balance) / NANO, nil
 }
 
 func (ops *BlockchainOperations) TransferJoules(from, to string, amount float64, fee int64) error {
-    amountNanojoules := int64(amount * JouleToNanojoule)
-    return ops.BC.Transfer(from, to, amountNanojoules, fee)
+    amountNano := int64(amount * NANO)
+    return ops.BC.Transfer(from, to, amountNano, fee)
 }
 
 func (ops *BlockchainOperations) MintInitialSupply(address string, amount float64) error {
-    amountNanojoules := int64(amount * JouleToNanojoule)
-    return ops.BC.MintInitialSupply(address, amountNanojoules)
+    amountNano := int64(amount * NANO)
+    return ops.BC.MintInitialSupply(address, amountNano)
 }
 
 func (ops *BlockchainOperations) PrintBlockchainState() {
@@ -53,6 +54,37 @@ func (ops *BlockchainOperations) PrintBlockchainState() {
 
     fmt.Println("Account Balances:")
     for _, account := range ops.BC.GetAccounts() {
-        fmt.Printf("  %s (%s): %.6f Joules\n", account.Name, account.Address, float64(account.Balance)/JouleToNanojoule)
+        fmt.Printf("  %s (%s): %.6f JUL\n", account.Name, account.Address, float64(account.Balance)/NANO)
     }
+}
+
+func (ops *BlockchainOperations) BuyJUL(accountAddress string, qarAmount float64) error {
+    err := ops.BC.BuyJUL(accountAddress, qarAmount)
+    if err != nil {
+        return err
+    }
+    // Immediately fetch and update the account balance
+    account, exists := ops.BC.Accounts[accountAddress]
+    if !exists {
+        return errors.New("account not found after purchase")
+    }
+    account.Balance, err = ops.BC.GetBalance(accountAddress)
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func (ops *BlockchainOperations) GetMempool() []Transaction {
+    return ops.BC.Mempool
+}
+
+// Add this method
+func (ops *BlockchainOperations) GetAccountName(address string) (string, error) {
+    for _, account := range ops.BC.GetAccounts() {
+        if account.Address == address {
+            return account.Name, nil
+        }
+    }
+    return "", errors.New("account not found")
 }

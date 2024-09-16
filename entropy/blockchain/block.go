@@ -8,9 +8,13 @@ import (
 )
 
 const (
-	JouleToMicrojoule = 1000000
-	JouleToNanojoule  = 1000000000
-	JouleToPicojoule  = 1000000000000
+	JUL            = 1
+	MICRO          = JUL / 1000000
+	NANO           = JUL / 1000000000
+	PICO           = JUL / 1000000000000
+	BlockTime      = 30 * time.Second
+	ExchangeRate   = 35 // 35 JUL to 1 QAR
+	InitialSupply  = 1000000 * JUL
 )
 
 type Block struct {

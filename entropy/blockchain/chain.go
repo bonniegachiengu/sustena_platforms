@@ -13,6 +13,7 @@ type Blockchain struct {
 	Chain    []*Block
 	Accounts map[string]*Account
 	Mempool  []Transaction
+	Exchange *Account
 	mu       sync.RWMutex
 }
 
@@ -22,35 +23,89 @@ func NewBlockchain() *Blockchain {
 		Accounts: make(map[string]*Account),
 		Mempool:  []Transaction{},
 	}
+	bc.initializeExchange()
 	go bc.startBlockTimer()
 	return bc
 }
 
+func (bc *Blockchain) initializeExchange() {
+	exchangeAccount, _ := bc.CreateAccount("Exchange")
+	bc.Exchange = exchangeAccount
+	bc.MintInitialSupply(bc.Exchange.Address, InitialSupply)
+}
+
 func (bc *Blockchain) startBlockTimer() {
 	for {
-		time.Sleep(5 * time.Minute)
-		bc.mu.Lock()
-		if len(bc.Mempool) > 0 {
-			lastBlock := bc.Chain[len(bc.Chain)-1]
-			newBlock := &Block{
-				Index:        lastBlock.Index + 1,
-				Timestamp:    time.Now().Unix(),
-				Transactions: bc.Mempool,
-				PrevHash:     lastBlock.Hash,
-				Validator:    bc.selectValidator(),
-				Stake:        bc.Accounts[bc.selectValidator()].Stake,
-			}
-			newBlock.Hash = calculateHash(newBlock.Index, newBlock.Timestamp, newBlock.Transactions, newBlock.PrevHash, newBlock.Validator, newBlock.Stake)
-			bc.Chain = append(bc.Chain, newBlock)
-			bc.Mempool = []Transaction{}
-		}
-		bc.mu.Unlock()
+		time.Sleep(BlockTime)
+		bc.createNewBlock()
 	}
 }
 
-func (bc *Blockchain) AddTransaction(tx Transaction) error {
+func (bc *Blockchain) createNewBlock() {
+	if len(bc.Mempool) > 0 {
+		lastBlock := bc.Chain[len(bc.Chain)-1]
+		validator := bc.selectValidator()
+		totalFees := int64(0)
+		for _, tx := range bc.Mempool {
+			totalFees += tx.Fee
+		}
+
+		newBlock := &Block{
+			Index:        lastBlock.Index + 1,
+			Timestamp:    time.Now().Unix(),
+			Transactions: bc.Mempool,
+			PrevHash:     lastBlock.Hash,
+			Validator:    validator,
+			Stake:        bc.Accounts[validator].Stake,
+		}
+		newBlock.Hash = calculateHash(newBlock.Index, newBlock.Timestamp, newBlock.Transactions, newBlock.PrevHash, newBlock.Validator, newBlock.Stake)
+		
+		// Apply transactions
+		for _, tx := range newBlock.Transactions {
+			bc.applyTransaction(tx)
+		}
+
+		bc.Chain = append(bc.Chain, newBlock)
+		bc.Mempool = []Transaction{}
+
+		// Add validator reward transaction to the mempool for the next block
+		rewardTx := Transaction{
+			From:   "System",
+			To:     validator,
+			Amount: totalFees,
+			Fee:    0,
+		}
+		bc.Mempool = append(bc.Mempool, rewardTx)
+	}
+}
+
+func (bc *Blockchain) applyTransaction(tx Transaction) {
+	if tx.From != "System" {
+		bc.Accounts[tx.From].Balance -= tx.Amount + tx.Fee
+	}
+	bc.Accounts[tx.To].Balance += tx.Amount
+}
+
+func (bc *Blockchain) Transfer(from, to string, amount, fee int64) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
+
+	sender, exists := bc.Accounts[from]
+	if !exists {
+		return errors.New("sender account not found")
+	}
+
+	if sender.Balance < amount+fee {
+		return errors.New("insufficient balance")
+	}
+
+	tx := Transaction{
+		From:   from,
+		To:     to,
+		Amount: amount,
+		Fee:    fee,
+	}
+
 	bc.Mempool = append(bc.Mempool, tx)
 	return nil
 }
@@ -159,63 +214,30 @@ func (bc *Blockchain) CreateAccount(name string) (*Account, error) {
 	return account, nil
 }
 
-func (bc *Blockchain) Transfer(from, to string, amount, fee int64) error {
+func (bc *Blockchain) BuyJUL(accountAddress string, qarAmount float64) error {
 	bc.mu.Lock()
-	tx := Transaction{
-		From:   from,
-		To:     to,
-		Amount: amount,
-		Fee:    fee,
+	defer bc.mu.Unlock()
+
+	julAmount := int64(qarAmount * float64(ExchangeRate) * NANO)
+	if bc.Exchange.Balance < julAmount {
+		return errors.New("insufficient JUL in exchange")
 	}
 
-	if err := bc.verifyAndApplyTransaction(tx); err != nil {
-		bc.mu.Unlock()
-		return err
+	account, exists := bc.Accounts[accountAddress]
+	if !exists {
+		return errors.New("account not found")
 	}
 
-	// Create the new block outside the lock
-	lastBlock := bc.Chain[len(bc.Chain)-1]
-	newBlock := &Block{
-		Index:        lastBlock.Index + 1,
-		Timestamp:    time.Now().Unix(),
-		Transactions: []Transaction{tx},
-		PrevHash:     lastBlock.Hash,
-		Validator:    bc.selectValidator(),
-		Stake:        bc.Accounts[bc.selectValidator()].Stake,
-	}
-	newBlock.Hash = calculateHash(newBlock.Index, newBlock.Timestamp, newBlock.Transactions, newBlock.PrevHash, newBlock.Validator, newBlock.Stake)
-	bc.mu.Unlock()
+	bc.Exchange.Balance -= julAmount
+	account.Balance += julAmount
 
-	// Add the new block with a separate lock
-	bc.addBlockWithLock(newBlock)
 	return nil
 }
 
-func (bc *Blockchain) addBlockWithLock(block *Block) {
-	bc.mu.Lock()
-	defer bc.mu.Unlock() // Ensure the lock is released even if there's an error
-
-	if len(bc.Chain) > 0 {
-		lastBlock := bc.Chain[len(bc.Chain)-1]
-		if block.PrevHash != lastBlock.Hash {
-			fmt.Println("invalid previous hash")
-			return
-		}
-		if block.Index != lastBlock.Index+1 {
-			fmt.Println("invalid block index")
-			return
-		}
-	}
-
-	// Verify transactions and update account balances
-	for _, tx := range block.Transactions {
-		if err := bc.verifyAndApplyTransaction(tx); err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-
-	bc.Chain = append(bc.Chain, block)
+func (bc *Blockchain) GetMempool() []Transaction {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.Mempool
 }
 
 func (bc *Blockchain) selectValidator() string {

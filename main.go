@@ -25,6 +25,8 @@ func main() {
 	http.HandleFunc("/get_balance", server.GetBalanceHandler)
 	http.HandleFunc("/get_chain", server.GetChainHandler)
 	http.HandleFunc("/get_accounts", server.GetAccountsHandler)
+	http.HandleFunc("/buy_jul", server.BuyJULHandler)
+	http.HandleFunc("/get_mempool", server.GetMempoolHandler)
 
 	// Serve static files for the UI
 	fs := http.FileServer(http.Dir("./blockchain-ui/build"))
