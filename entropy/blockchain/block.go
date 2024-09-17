@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+const (
+	JUL            = 1
+	MICRO          = JUL / 1000000
+	NANO           = JUL / 1000000000
+	PICO           = JUL / 1000000000000
+	BlockTime      = 30 * time.Second
+	ExchangeRate   = 35 // 35 JUL to 1 QAR
+	InitialSupply  = 1000000 * JUL
+)
+
 type Block struct {
 	Index        int64
 	Timestamp    int64
@@ -20,7 +30,9 @@ type Block struct {
 type Transaction struct {
 	From   string
 	To     string
-	Amount int64 // Amount in Joules
+	Amount int64 // Amount in Nanojoules
+	Nonce  uint64
+	Fee    int64
 }
 
 func NewBlock(index int64, transactions []Transaction, prevHash string, validator string, stake int64) *Block {
