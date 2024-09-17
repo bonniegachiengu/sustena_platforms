@@ -9,6 +9,7 @@ import (
 	"sustena_platforms/entropy/blockchain"
 	"sustena_platforms/entropy/node"
 	"time"
+	"sustena_platforms/utils"
 )
 
 type CLI struct {
@@ -26,9 +27,12 @@ func (cli *CLI) Run() {
 		fmt.Println("1. Create wallet")
 		fmt.Println("2. Check balance")
 		fmt.Println("3. Send transaction")
-		fmt.Println("4. Forge new block")  // Changed from "Mine block"
+		fmt.Println("4. Forge new block")
 		fmt.Println("5. Print blockchain")
-		fmt.Println("6. Exit")
+		fmt.Println("6. Stake JUL")
+		fmt.Println("7. Unstake JUL")
+		fmt.Println("8. Show Community Fund")
+		fmt.Println("9. Exit")
 		fmt.Print("Enter command number: ")
 
 		input, _ := reader.ReadString('\n')
@@ -42,10 +46,16 @@ func (cli *CLI) Run() {
 		case "3":
 			cli.sendTransaction()
 		case "4":
-			cli.forgeBlock()  // Changed from cli.mineBlock()
+			cli.forgeBlock()
 		case "5":
 			cli.printBlockchain()
 		case "6":
+			cli.stakeJUL()
+		case "7":
+			cli.unstakeJUL()
+		case "8":
+			cli.showCommunityFund()
+		case "9":
 			fmt.Println("Exiting...")
 			return
 		default:
@@ -75,6 +85,9 @@ func (cli *CLI) createWallet() {
 
 	// Update the blockchain's wallet
 	cli.Node.Blockchain.Wallets[address] = wallet
+
+	utils.LogInfo(fmt.Sprintf("Created new wallet with address: %s", address))
+	utils.LogInfo(fmt.Sprintf("Purchased %.2f JUL for wallet %s", julPurchased, address))
 }
 
 func (cli *CLI) checkBalance() {
@@ -121,24 +134,27 @@ func (cli *CLI) sendTransaction() {
 
 	if cli.Node.Blockchain.AddTransaction(tx) {
 		cli.Node.P2P.BroadcastTransaction(cli.Node.ID, tx)
-		fmt.Println("Transaction added and broadcasted")
+		utils.LogInfo(fmt.Sprintf("Transaction added and broadcasted: %s -> %s, Amount: %.2f JUL", from, to, amount))
 	} else {
-		fmt.Println("Failed to add transaction")
+		utils.LogError(utils.NewError(fmt.Sprintf("Failed to add transaction: %s -> %s, Amount: %.2f JUL", from, to, amount)))
 	}
 }
 
 func (cli *CLI) forgeBlock() {
+	utils.LogInfo("Attempting to forge a new block...")
 	validator := cli.Node.Blockchain.PoS.SelectValidator()
 	if validator == nil {
-		fmt.Println("No validator selected")
+		utils.LogInfo("No validator selected")
 		return
 	}
+
+	utils.LogInfo(fmt.Sprintf("Validator selected: %s", validator.Address))
 
 	time.Sleep(time.Second) // Add a 1-second delay before creating a new block
 
 	err := cli.Node.Blockchain.AddBlock(validator.Address)
 	if err != nil {
-		fmt.Printf("Error forging new block: %v\n", err)
+		utils.LogError(utils.NewError(fmt.Sprintf("Error forging new block: %v", err)))
 	} else {
 		newBlock := cli.Node.Blockchain.GetLatestBlock()
 		cli.Node.PropagateNewBlock(newBlock)
@@ -151,7 +167,7 @@ func (cli *CLI) forgeBlock() {
 			fmt.Printf("Validator %s rewarded with %.2f JUL\n", validator.Address, blockReward)
 		}
 
-		fmt.Printf("New block forged and propagated by validator %s\n", validator.Address)
+		utils.LogInfo(fmt.Sprintf("New block forged and propagated by validator %s", validator.Address))
 	}
 }
 
@@ -165,4 +181,80 @@ func (cli *CLI) printBlockchain() {
 		fmt.Printf("  Validator: %s\n", block.Validator)
 		fmt.Println()
 	}
+}
+
+func (cli *CLI) stakeJUL() {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter wallet address: ")
+	address, _ := reader.ReadString('\n')
+	address = strings.TrimSpace(address)
+
+	wallet := cli.Node.WalletManager.GetWallet(address)
+	if wallet == nil {
+		fmt.Println("Wallet not found")
+		return
+	}
+
+	fmt.Print("Enter amount to stake: ")
+	amountStr, _ := reader.ReadString('\n')
+	amountStr = strings.TrimSpace(amountStr)
+	amount, err := strconv.ParseFloat(amountStr, 64)
+	if err != nil {
+		fmt.Println("Invalid amount")
+		return
+	}
+
+	err = wallet.Stake(amount)
+	if err != nil {
+		fmt.Printf("Error staking: %v\n", err)
+		return
+	}
+
+	// Add this line to add the validator to the PoS system
+	cli.Node.Blockchain.PoS.AddValidator(address, amount, wallet.GetTotalBalance())
+
+	cli.Node.Blockchain.PoS.UpdateStake(address, wallet.GetStakedAmount(), wallet.GetTotalBalance())
+	fmt.Printf("Successfully staked %.2f JUL\n", amount)
+
+	utils.LogInfo(fmt.Sprintf("Wallet %s staked %.2f JUL", address, amount))
+}
+
+func (cli *CLI) unstakeJUL() {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter wallet address: ")
+	address, _ := reader.ReadString('\n')
+	address = strings.TrimSpace(address)
+
+	wallet := cli.Node.WalletManager.GetWallet(address)
+	if wallet == nil {
+		fmt.Println("Wallet not found")
+		return
+	}
+
+	fmt.Print("Enter amount to unstake: ")
+	amountStr, _ := reader.ReadString('\n')
+	amountStr = strings.TrimSpace(amountStr)
+	amount, err := strconv.ParseFloat(amountStr, 64)
+	if err != nil {
+		fmt.Println("Invalid amount")
+		return
+	}
+
+	err = wallet.Unstake(amount)
+	if err != nil {
+		fmt.Printf("Error unstaking: %v\n", err)
+		return
+	}
+
+	cli.Node.Blockchain.PoS.UpdateStake(address, wallet.GetStakedAmount(), wallet.GetTotalBalance())
+	fmt.Printf("Successfully unstaked %.2f JUL\n", amount)
+
+	utils.LogInfo(fmt.Sprintf("Wallet %s unstaked %.2f JUL", address, amount))
+}
+
+func (cli *CLI) showCommunityFund() {
+	fundBalance := cli.Node.Blockchain.PoS.GetCommunityFund()
+	fmt.Printf("Community Fund Balance: %.2f JUL\n", fundBalance)
 }

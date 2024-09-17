@@ -41,8 +41,10 @@ func NewBlockchain(stateFile string) *Blockchain {
 }
 
 // Add this new method
-func (bc *Blockchain) AddValidator(address string, stake uint64) {
-	bc.PoS.AddValidator(address, stake)
+func (bc *Blockchain) AddValidator(address string, stake float64) {
+	if wallet, exists := bc.Wallets[address]; exists {
+		bc.PoS.AddValidator(address, stake, wallet.GetTotalBalance())
+	}
 }
 
 func (bc *Blockchain) AddBlock(validator string) error {
@@ -329,7 +331,7 @@ func LoadBlockchainFromDisk(filename string) (*Blockchain, error) {
 	// Reconstruct the PoS state
 	for _, block := range bc.Blocks {
 		if wallet, exists := bc.Wallets[block.Validator]; exists {
-			bc.PoS.AddValidator(block.Validator, uint64(wallet.GetBalance()))
+			bc.PoS.AddValidator(block.Validator, wallet.GetStakedAmount(), wallet.GetTotalBalance())
 		}
 	}
 
@@ -340,6 +342,6 @@ func LoadBlockchainFromDisk(filename string) (*Blockchain, error) {
 func (bc *Blockchain) RegisterWallet(wallet *Wallet) {
 	address := wallet.GetAddress()
 	bc.Wallets[address] = wallet
-	bc.PoS.AddValidator(address, 100) // Add as validator with 100 stake
+	bc.PoS.AddValidator(address, 0, wallet.GetTotalBalance()) // Initialize with 0 stake
 	utils.LogInfo(fmt.Sprintf("Registered wallet with address %s", address))
 }

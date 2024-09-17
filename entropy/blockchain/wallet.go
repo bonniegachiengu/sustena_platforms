@@ -6,26 +6,33 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	//"math/big"
+	"fmt"
 )
 
 // Add these constants at the top of the file
 const (
 	USDtoJULRate = 35
 	BlockReward  = 50 // JUL reward for forging a block
+	MinStake     = 100 // Minimum amount of JUL that can be staked (same as MinimumStake in pos.go)
 )
 
 type Wallet struct {
 	PrivateKey *ecdsa.PrivateKey
 	PublicKey  *ecdsa.PublicKey
-	Balance    float64 // Add this line
+	Balance    float64
+	Staked     float64
 }
 
 func NewWallet() *Wallet {
 	private, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	public := &private.PublicKey
 
-	return &Wallet{private, public, 0} // Initialize balance to 0
+	return &Wallet{
+		PrivateKey: private,
+		PublicKey:  public,
+		Balance:    0,
+		Staked:     0,
+	}
 }
 
 func (w *Wallet) GetAddress() string {
@@ -35,7 +42,7 @@ func (w *Wallet) GetAddress() string {
 }
 
 func (w *Wallet) SignTransaction(tx *Transaction) ([]byte, error) {
-	txHash := calculateTransactionHash(tx)
+	txHash := CalculateTransactionHash(tx)
 	r, s, err := ecdsa.Sign(rand.Reader, w.PrivateKey, []byte(txHash))
 	if err != nil {
 		return nil, err
@@ -50,7 +57,6 @@ func (w *Wallet) SignTransaction(tx *Transaction) ([]byte, error) {
 	return signature, nil
 }
 
-// Add these methods
 func (w *Wallet) GetBalance() float64 {
 	return w.Balance
 }
@@ -71,6 +77,35 @@ func (w *Wallet) PurchaseJUL(usdAmount float64) float64 {
 	julAmount := usdAmount * USDtoJULRate
 	w.Balance += julAmount
 	return julAmount
+}
+
+func (w *Wallet) Stake(amount float64) error {
+	if amount < MinStake {
+		return fmt.Errorf("minimum stake is %d JUL", MinStake)
+	}
+	if amount > w.Balance {
+		return fmt.Errorf("insufficient balance")
+	}
+	w.Balance -= amount
+	w.Staked += amount
+	return nil
+}
+
+func (w *Wallet) Unstake(amount float64) error {
+	if amount > w.Staked {
+		return fmt.Errorf("cannot unstake more than staked amount")
+	}
+	w.Staked -= amount
+	w.Balance += amount
+	return nil
+}
+
+func (w *Wallet) GetStakedAmount() float64 {
+	return w.Staked
+}
+
+func (w *Wallet) GetTotalBalance() float64 {
+	return w.Balance + w.Staked
 }
 
 type WalletManager struct {
@@ -94,7 +129,13 @@ func (wm *WalletManager) GetWallet(address string) *Wallet {
 	return wm.Wallets[address]
 }
 
-// Add this function at the end of the file
 func GetBlockReward() float64 {
 	return BlockReward
 }
+
+// This function should be defined somewhere in your blockchain package
+// func CalculateTransactionHash(tx *Transaction) string {
+//     // Implement the hash calculation for a transaction
+//     // This is just a placeholder implementation
+//     return fmt.Sprintf("%v", tx)
+// }

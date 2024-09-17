@@ -61,7 +61,7 @@ func NewTransaction(wallet *Wallet, to string, amount float64) (*Transaction, er
 		Timestamp: time.Now().Unix(),
 		PublicKey: &PublicKeyJSON{X: wallet.PublicKey.X, Y: wallet.PublicKey.Y},
 	}
-	tx.ID = calculateTransactionHash(tx)
+	tx.ID = CalculateTransactionHash(tx)
 	signature, err := wallet.SignTransaction(tx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign transaction: %v", err)
@@ -70,7 +70,8 @@ func NewTransaction(wallet *Wallet, to string, amount float64) (*Transaction, er
 	return tx, nil
 }
 
-func calculateTransactionHash(tx *Transaction) string {
+// Ensure this function is exported (starts with a capital letter)
+func CalculateTransactionHash(tx *Transaction) string {
 	record := fmt.Sprintf("%s%s%f%d", tx.From, tx.To, tx.Amount, tx.Timestamp)
 	h := sha256.New()
 	h.Write([]byte(record))
@@ -82,7 +83,7 @@ func VerifyTransaction(tx *Transaction, pubKey *ecdsa.PublicKey) bool {
 	if tx == nil || pubKey == nil || len(tx.Signature) < 64 {
 		return false
 	}
-	txHash := calculateTransactionHash(tx)
+	txHash := CalculateTransactionHash(tx)
 	r := new(big.Int).SetBytes(tx.Signature[:32])
 	s := new(big.Int).SetBytes(tx.Signature[32:])
 	return ecdsa.Verify(pubKey, []byte(txHash), r, s)
