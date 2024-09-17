@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+	"sustena_platforms/utils"
 )
 
 type Block struct {
@@ -22,7 +23,7 @@ type Block struct {
 func CreateBlock(index int64, transactions []*Transaction, previousHash string, validator string) Block {
 	block := Block{
 		Index:        index,
-		Timestamp:    time.Now().Unix(),
+		Timestamp:    time.Now().UnixNano(), // Use nanoseconds for more precision
 		Transactions: transactions,
 		PreviousHash: previousHash,
 		Validator:    validator,
@@ -41,18 +42,26 @@ func CalculateHash(block Block) string {
 }
 
 func (b *Block) IsValid(previousBlock *Block) bool {
+	if previousBlock == nil && b.Index != 0 {
+		utils.LogError(utils.NewError("Only genesis block can have no previous block"))
+		return false
+	}
 	if previousBlock != nil {
 		if b.Index != previousBlock.Index+1 {
+			utils.LogError(utils.NewError(fmt.Sprintf("Invalid block index. Expected %d, got %d", previousBlock.Index+1, b.Index)))
 			return false
 		}
 		if b.PreviousHash != previousBlock.Hash {
+			utils.LogError(utils.NewError("Invalid previous hash"))
 			return false
 		}
 		if b.Timestamp <= previousBlock.Timestamp {
+			utils.LogError(utils.NewError("Invalid timestamp"))
 			return false
 		}
 	}
 	if CalculateHash(*b) != b.Hash {
+		utils.LogError(utils.NewError("Invalid hash"))
 		return false
 	}
 	return true

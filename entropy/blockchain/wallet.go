@@ -9,16 +9,23 @@ import (
 	//"math/big"
 )
 
+// Add these constants at the top of the file
+const (
+	USDtoJULRate = 35
+	BlockReward  = 50 // JUL reward for forging a block
+)
+
 type Wallet struct {
 	PrivateKey *ecdsa.PrivateKey
 	PublicKey  *ecdsa.PublicKey
+	Balance    float64 // Add this line
 }
 
 func NewWallet() *Wallet {
 	private, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	public := &private.PublicKey
 
-	return &Wallet{private, public}
+	return &Wallet{private, public, 0} // Initialize balance to 0
 }
 
 func (w *Wallet) GetAddress() string {
@@ -43,6 +50,29 @@ func (w *Wallet) SignTransaction(tx *Transaction) ([]byte, error) {
 	return signature, nil
 }
 
+// Add these methods
+func (w *Wallet) GetBalance() float64 {
+	return w.Balance
+}
+
+func (w *Wallet) SetBalance(balance float64) {
+	w.Balance = balance
+}
+
+func (w *Wallet) AddBalance(amount float64) {
+	w.Balance += amount
+}
+
+func (w *Wallet) DeductBalance(amount float64) {
+	w.Balance -= amount
+}
+
+func (w *Wallet) PurchaseJUL(usdAmount float64) float64 {
+	julAmount := usdAmount * USDtoJULRate
+	w.Balance += julAmount
+	return julAmount
+}
+
 type WalletManager struct {
 	Wallets map[string]*Wallet
 }
@@ -62,4 +92,9 @@ func (wm *WalletManager) CreateWallet() *Wallet {
 
 func (wm *WalletManager) GetWallet(address string) *Wallet {
 	return wm.Wallets[address]
+}
+
+// Add this function at the end of the file
+func GetBlockReward() float64 {
+	return BlockReward
 }

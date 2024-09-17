@@ -15,7 +15,7 @@ type Blockchain struct {
 	Blocks    []*Block
 	PoS       *consensus.PoS
 	Mempool   []*Transaction
-	Wallets   map[string]float64
+	Wallets   map[string]*Wallet // Change this line
 }
 
 func NewBlockchain(stateFile string) *Blockchain {
@@ -36,7 +36,7 @@ func NewBlockchain(stateFile string) *Blockchain {
 		Blocks:  []*Block{&genesisBlock},
 		PoS:     pos,
 		Mempool: []*Transaction{},
-		Wallets: make(map[string]float64),
+		Wallets: make(map[string]*Wallet), // Change this line
 	}
 }
 
@@ -66,17 +66,42 @@ func (bc *Blockchain) AddBlock(validator string) error {
 	
 	bc.Blocks = append(bc.Blocks, &newBlock)
 	bc.processTransactions(newBlock)
+
+	// Reward the validator
+	if validatorWallet, exists := bc.Wallets[validator]; exists {
+		validatorWallet.AddBalance(BlockReward)
+	}
+
 	utils.LogInfo(fmt.Sprintf("New block added: Index %d, Validator %s, Transactions %d", 
                newBlock.Index, newBlock.Validator, len(newBlock.Transactions)))
 	return nil
 }
 
 func (bc *Blockchain) AddTransaction(tx *Transaction) bool {
-	if bc.validateTransaction(tx) {
-		bc.Mempool = append(bc.Mempool, tx)
-		return true
+	if !bc.validateTransaction(tx) {
+		return false
 	}
-	return false
+	
+	// Check if transaction is already in mempool
+	for _, mempoolTx := range bc.Mempool {
+		if mempoolTx.ID == tx.ID {
+			utils.LogError(utils.NewError(fmt.Sprintf("Transaction %s is already in the mempool", tx.ID)))
+			return false
+		}
+	}
+	
+	// Check if transaction is already in a block
+	for _, block := range bc.Blocks {
+		for _, blockTx := range block.Transactions {
+			if blockTx.ID == tx.ID {
+				utils.LogError(utils.NewError(fmt.Sprintf("Transaction %s is already in a block", tx.ID)))
+				return false
+			}
+		}
+	}
+	
+	bc.Mempool = append(bc.Mempool, tx)
+	return true
 }
 
 func (bc *Blockchain) getTransactionsFromMempool() []*Transaction {
@@ -91,8 +116,8 @@ func (bc *Blockchain) getTransactionsFromMempool() []*Transaction {
 }
 
 func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
-	if balance, exists := bc.Wallets[tx.From]; exists {
-		if balance >= tx.Amount {
+	if wallet, exists := bc.Wallets[tx.From]; exists {
+		if wallet.GetBalance() >= tx.Amount {
 			// Convert PublicKeyJSON to ecdsa.PublicKey
 			publicKey := &ecdsa.PublicKey{
 				Curve: elliptic.P256(),
@@ -123,7 +148,7 @@ func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
 			
 			return true
 		} else {
-			utils.LogError(utils.NewError(fmt.Sprintf("Insufficient balance for %s: has %.2f, needs %.2f", tx.From, balance, tx.Amount)))
+			utils.LogError(utils.NewError(fmt.Sprintf("Insufficient balance for %s: has %.2f, needs %.2f", tx.From, wallet.GetBalance(), tx.Amount)))
 			return false
 		}
 	} else {
@@ -134,16 +159,33 @@ func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
 
 func (bc *Blockchain) processTransactions(block Block) {
 	for _, tx := range block.Transactions {
-		bc.Wallets[tx.From] -= tx.Amount
-		bc.Wallets[tx.To] += tx.Amount
+		fromWallet := bc.EnsureWallet(tx.From)
+		toWallet := bc.EnsureWallet(tx.To)
+		validatorWallet := bc.EnsureWallet(block.Validator)
+
+		fromWallet.DeductBalance(tx.Amount)
+		toWallet.AddBalance(tx.Amount)
+		
 		// Add a small fee to the validator as an incentive
 		fee := tx.Amount * 0.001 // 0.1% fee
-		bc.Wallets[block.Validator] += fee
+		validatorWallet.AddBalance(fee)
 	}
 }
 
+func (bc *Blockchain) EnsureWallet(address string) *Wallet {
+	if wallet, exists := bc.Wallets[address]; exists {
+		return wallet
+	}
+	newWallet := NewWallet()
+	bc.Wallets[address] = newWallet
+	return newWallet
+}
+
 func (bc *Blockchain) GetBalance(address string) float64 {
-	return bc.Wallets[address]
+	if wallet, exists := bc.Wallets[address]; exists {
+		return wallet.GetBalance()
+	}
+	return 0
 }
 
 func (bc *Blockchain) IsValid() bool {
@@ -209,7 +251,9 @@ func (bc *Blockchain) IsValidChain(chain []*Block) bool {
 
 func (bc *Blockchain) ReprocessTransactions() {
 	// Reset all wallet balances
-	bc.Wallets = make(map[string]float64)
+	for _, wallet := range bc.Wallets {
+		wallet.SetBalance(0)
+	}
 
 	// Reprocess all transactions in the new chain
 	for _, block := range bc.Blocks {
@@ -233,9 +277,14 @@ type BlockchainState struct {
 }
 
 func (bc *Blockchain) SaveToDisk(filename string) error {
+	walletBalances := make(map[string]float64)
+	for address, wallet := range bc.Wallets {
+		walletBalances[address] = wallet.GetBalance()
+	}
+	
 	state := BlockchainState{
 		Blocks:  bc.Blocks,
-		Wallets: bc.Wallets,
+		Wallets: walletBalances,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -267,15 +316,30 @@ func LoadBlockchainFromDisk(filename string) (*Blockchain, error) {
 		Blocks:  state.Blocks,
 		PoS:     consensus.NewPoS(),
 		Mempool: []*Transaction{},
-		Wallets: state.Wallets,
+		Wallets: make(map[string]*Wallet),
+	}
+
+	// Convert float64 balances to Wallet objects
+	for address, balance := range state.Wallets {
+		wallet := NewWallet()
+		wallet.SetBalance(balance)
+		bc.Wallets[address] = wallet
 	}
 
 	// Reconstruct the PoS state
 	for _, block := range bc.Blocks {
-		if validator, exists := bc.Wallets[block.Validator]; exists {
-			bc.PoS.AddValidator(block.Validator, uint64(validator))
+		if wallet, exists := bc.Wallets[block.Validator]; exists {
+			bc.PoS.AddValidator(block.Validator, uint64(wallet.GetBalance()))
 		}
 	}
 
 	return bc, nil
+}
+
+// Add this method
+func (bc *Blockchain) RegisterWallet(wallet *Wallet) {
+	address := wallet.GetAddress()
+	bc.Wallets[address] = wallet
+	bc.PoS.AddValidator(address, 100) // Add as validator with 100 stake
+	utils.LogInfo(fmt.Sprintf("Registered wallet with address %s", address))
 }
