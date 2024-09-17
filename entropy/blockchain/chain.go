@@ -1,359 +1,281 @@
 package blockchain
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
+	"io/ioutil"
+	"os"
+	"sustena_platforms/entropy/consensus"
+	"sustena_platforms/utils"
 )
 
 type Blockchain struct {
-	Chain    []*Block
-	Accounts map[string]*Account
-	Mempool  []Transaction
-	Exchange *Account
-	mu       sync.RWMutex
+	Blocks    []*Block
+	PoS       *consensus.PoS
+	Mempool   []*Transaction
+	Wallets   map[string]float64
 }
 
-func NewBlockchain() *Blockchain {
-	bc := &Blockchain{
-		Chain:    []*Block{GenesisBlock()},
-		Accounts: make(map[string]*Account),
-		Mempool:  []Transaction{},
-	}
-	bc.initializeExchange()
-	go bc.startBlockTimer()
-	return bc
-}
-
-func (bc *Blockchain) initializeExchange() {
-	exchangeAccount, _ := bc.CreateAccount("Exchange")
-	bc.Exchange = exchangeAccount
-	bc.MintInitialSupply(bc.Exchange.Address, InitialSupply)
-}
-
-func (bc *Blockchain) startBlockTimer() {
-	for {
-		time.Sleep(BlockTime)
-		bc.createNewBlock()
-	}
-}
-
-func (bc *Blockchain) createNewBlock() {
-	if len(bc.Mempool) > 0 {
-		lastBlock := bc.Chain[len(bc.Chain)-1]
-		validator := bc.selectValidator()
-		totalFees := int64(0)
-		for _, tx := range bc.Mempool {
-			totalFees += tx.Fee
+func NewBlockchain(stateFile string) *Blockchain {
+	if _, err := os.Stat(stateFile); err == nil {
+		// State file exists, load the blockchain
+		bc, err := LoadBlockchainFromDisk(stateFile)
+		if err == nil {
+			fmt.Println("Loaded existing blockchain state from disk")
+			return bc
 		}
+		fmt.Printf("Error loading blockchain state: %v. Creating new blockchain.\n", err)
+	}
 
-		newBlock := &Block{
-			Index:        lastBlock.Index + 1,
-			Timestamp:    time.Now().Unix(),
-			Transactions: bc.Mempool,
-			PrevHash:     lastBlock.Hash,
-			Validator:    validator,
-			Stake:        bc.Accounts[validator].Stake,
-		}
-		newBlock.Hash = calculateHash(newBlock.Index, newBlock.Timestamp, newBlock.Transactions, newBlock.PrevHash, newBlock.Validator, newBlock.Stake)
-		
-		// Apply transactions
-		for _, tx := range newBlock.Transactions {
-			bc.applyTransaction(tx)
-		}
-
-		bc.Chain = append(bc.Chain, newBlock)
-		bc.Mempool = []Transaction{}
-
-		// Add validator reward transaction to the mempool for the next block
-		rewardTx := Transaction{
-			From:   "System",
-			To:     validator,
-			Amount: totalFees,
-			Fee:    0,
-		}
-		bc.Mempool = append(bc.Mempool, rewardTx)
+	// Create a new blockchain if loading fails or file doesn't exist
+	pos := consensus.NewPoS()
+	genesisBlock := CreateBlock(0, []*Transaction{}, "", "")
+	return &Blockchain{
+		Blocks:  []*Block{&genesisBlock},
+		PoS:     pos,
+		Mempool: []*Transaction{},
+		Wallets: make(map[string]float64),
 	}
 }
 
-func (bc *Blockchain) applyTransaction(tx Transaction) {
-	if tx.From != "System" {
-		bc.Accounts[tx.From].Balance -= tx.Amount + tx.Fee
-	}
-	bc.Accounts[tx.To].Balance += tx.Amount
+// Add this new method
+func (bc *Blockchain) AddValidator(address string, stake uint64) {
+	bc.PoS.AddValidator(address, stake)
 }
 
-func (bc *Blockchain) Transfer(from, to string, amount, fee int64) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	sender, exists := bc.Accounts[from]
-	if !exists {
-		return errors.New("sender account not found")
+func (bc *Blockchain) AddBlock(validator string) error {
+	prevBlock := bc.Blocks[len(bc.Blocks)-1]
+	transactions := bc.getTransactionsFromMempool()
+	utils.LogInfo(fmt.Sprintf("Creating new block with %d transactions", len(transactions)))
+	
+	newBlock := CreateBlock(int64(len(bc.Blocks)), transactions, prevBlock.Hash, validator)
+	
+	if !newBlock.IsValid(prevBlock) {
+		err := utils.NewError(fmt.Sprintf("Invalid block: failed validation. New block index: %d, Previous block index: %d", newBlock.Index, prevBlock.Index))
+		utils.LogError(err)
+		return err
 	}
-
-	if sender.Balance < amount+fee {
-		return errors.New("insufficient balance")
+	
+	if !newBlock.HasValidTransactions() {
+		err := utils.NewError("Invalid block: contains invalid transactions")
+		utils.LogError(err)
+		return err
 	}
-
-	tx := Transaction{
-		From:   from,
-		To:     to,
-		Amount: amount,
-		Fee:    fee,
-	}
-
-	bc.Mempool = append(bc.Mempool, tx)
+	
+	bc.Blocks = append(bc.Blocks, &newBlock)
+	bc.processTransactions(newBlock)
+	utils.LogInfo(fmt.Sprintf("New block added: Index %d, Validator %s, Transactions %d", 
+               newBlock.Index, newBlock.Validator, len(newBlock.Transactions)))
 	return nil
 }
 
-func GenesisBlock() *Block {
-	return &Block{
-		Index:        0,
-		Timestamp:    time.Now().Unix(),
-		Transactions: []Transaction{},
-		Hash:         calculateHash(0, time.Now().Unix(), []Transaction{}, "", "GenesisValidator", 0),
-		PrevHash:     "",
-		Validator:    "GenesisValidator",
-		Stake:        0,
+func (bc *Blockchain) AddTransaction(tx *Transaction) bool {
+	if bc.validateTransaction(tx) {
+		bc.Mempool = append(bc.Mempool, tx)
+		return true
+	}
+	return false
+}
+
+func (bc *Blockchain) getTransactionsFromMempool() []*Transaction {
+	if len(bc.Mempool) > 100 {
+		transactions := bc.Mempool[:100]
+		bc.Mempool = bc.Mempool[100:]
+		return transactions
+	}
+	transactions := bc.Mempool
+	bc.Mempool = []*Transaction{}
+	return transactions
+}
+
+func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
+	if balance, exists := bc.Wallets[tx.From]; exists {
+		if balance >= tx.Amount {
+			// Convert PublicKeyJSON to ecdsa.PublicKey
+			publicKey := &ecdsa.PublicKey{
+				Curve: elliptic.P256(),
+				X:     tx.PublicKey.X,
+				Y:     tx.PublicKey.Y,
+			}
+			if !VerifyTransaction(tx, publicKey) {
+				utils.LogError(utils.NewError(fmt.Sprintf("Transaction %s failed signature verification", tx.ID)))
+				return false
+			}
+			
+			// Check for double-spending
+			for _, mempoolTx := range bc.Mempool {
+				if mempoolTx.ID == tx.ID {
+					utils.LogError(utils.NewError(fmt.Sprintf("Transaction %s is already in the mempool", tx.ID)))
+					return false
+				}
+			}
+			
+			for _, block := range bc.Blocks {
+				for _, blockTx := range block.Transactions {
+					if blockTx.ID == tx.ID {
+						utils.LogError(utils.NewError(fmt.Sprintf("Transaction %s is already in a block", tx.ID)))
+						return false
+					}
+				}
+			}
+			
+			return true
+		} else {
+			utils.LogError(utils.NewError(fmt.Sprintf("Insufficient balance for %s: has %.2f, needs %.2f", tx.From, balance, tx.Amount)))
+			return false
+		}
+	} else {
+		utils.LogError(utils.NewError(fmt.Sprintf("Account not found: %s", tx.From)))
+		return false
 	}
 }
 
-func (bc *Blockchain) AddBlock(block *Block) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	if len(bc.Chain) > 0 {
-		lastBlock := bc.Chain[len(bc.Chain)-1]
-		if block.PrevHash != lastBlock.Hash {
-			return errors.New("invalid previous hash")
-		}
-		if block.Index != lastBlock.Index+1 {
-			return errors.New("invalid block index")
-		}
-	}
-
-	// Verify transactions and update account balances
+func (bc *Blockchain) processTransactions(block Block) {
 	for _, tx := range block.Transactions {
-		if err := bc.verifyAndApplyTransaction(tx); err != nil {
-			return err
+		bc.Wallets[tx.From] -= tx.Amount
+		bc.Wallets[tx.To] += tx.Amount
+		// Add a small fee to the validator as an incentive
+		fee := tx.Amount * 0.001 // 0.1% fee
+		bc.Wallets[block.Validator] += fee
+	}
+}
+
+func (bc *Blockchain) GetBalance(address string) float64 {
+	return bc.Wallets[address]
+}
+
+func (bc *Blockchain) IsValid() bool {
+	for i := 1; i < len(bc.Blocks); i++ {
+		currentBlock := bc.Blocks[i]
+		previousBlock := bc.Blocks[i-1]
+		
+		if !currentBlock.IsValid(previousBlock) {
+			return false
+		}
+		
+		if !currentBlock.HasValidTransactions() {
+			return false
+		}
+	}
+	return true
+}
+
+func (bc *Blockchain) ValidateChain() error {
+	if !bc.IsValid() {
+		return fmt.Errorf("blockchain is invalid")
+	}
+	return nil
+}
+
+// Add these new methods
+
+func (bc *Blockchain) ReplaceChain(newChain []*Block) error {
+	if len(newChain) <= len(bc.Blocks) {
+		return fmt.Errorf("new chain is not longer than the current chain")
+	}
+
+	if !bc.IsValidChain(newChain) {
+		return fmt.Errorf("new chain is not valid")
+	}
+
+	bc.Blocks = newChain
+	bc.ReprocessTransactions()
+	return nil
+}
+
+func (bc *Blockchain) IsValidChain(chain []*Block) bool {
+	if len(chain) == 0 {
+		return false
+	}
+
+	// Check if the first block is the genesis block
+	if CalculateHash(*chain[0]) != CalculateHash(*bc.Blocks[0]) {
+		return false
+	}
+
+	for i := 1; i < len(chain); i++ {
+		if !chain[i].IsValid(chain[i-1]) {
+			return false
+		}
+		if !chain[i].HasValidTransactions() {
+			return false
 		}
 	}
 
-	bc.Chain = append(bc.Chain, block)
-	return nil
+	return true
 }
 
-func (bc *Blockchain) verifyAndApplyTransaction(tx Transaction) error {
-	sender, exists := bc.Accounts[tx.From]
-	if !exists {
-		return errors.New("sender account not found")
+func (bc *Blockchain) ReprocessTransactions() {
+	// Reset all wallet balances
+	bc.Wallets = make(map[string]float64)
+
+	// Reprocess all transactions in the new chain
+	for _, block := range bc.Blocks {
+		bc.processTransactions(*block)
 	}
-
-	if sender.Balance < tx.Amount+tx.Fee {
-		return errors.New("insufficient balance")
-	}
-
-	recipient, exists := bc.Accounts[tx.To]
-	if !exists {
-		recipient = &Account{Address: tx.To, Balance: 0}
-		bc.Accounts[tx.To] = recipient
-	}
-
-	sender.Balance -= tx.Amount + tx.Fee
-	recipient.Balance += tx.Amount
-
-	// Add fee to validator's account (simplified for now)
-	validator, exists := bc.Accounts[bc.Chain[len(bc.Chain)-1].Validator]
-	if !exists {
-		validator = &Account{Address: bc.Chain[len(bc.Chain)-1].Validator, Balance: 0}
-		bc.Accounts[bc.Chain[len(bc.Chain)-1].Validator] = validator
-	}
-	validator.Balance += tx.Fee
-
-	return nil
 }
 
-func (bc *Blockchain) GetLastBlock() *Block {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	if len(bc.Chain) > 0 {
-		return bc.Chain[len(bc.Chain)-1]
-	}
-	return nil
+func (bc *Blockchain) GetChainLength() int {
+	return len(bc.Blocks)
 }
 
-func (bc *Blockchain) GetBalance(address string) (int64, error) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	account, exists := bc.Accounts[address]
-	if !exists {
-		return 0, errors.New("account not found")
-	}
-	return account.Balance, nil
+func (bc *Blockchain) GetLatestBlock() *Block {
+	return bc.Blocks[len(bc.Blocks)-1]
 }
 
-func (bc *Blockchain) CreateAccount(name string) (*Account, error) {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
+// Add these new methods and structures
 
-	address := generateAddress()
-	account := &Account{
-		Name:    name,
-		Address: address,
-		Balance: 0,
-		Stake:   0,
-	}
-
-	bc.Accounts[address] = account
-	return account, nil
+type BlockchainState struct {
+	Blocks  []*Block
+	Wallets map[string]float64
 }
 
-func (bc *Blockchain) BuyJUL(accountAddress string, qarAmount float64) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	julAmount := int64(qarAmount * float64(ExchangeRate) * NANO)
-	if bc.Exchange.Balance < julAmount {
-		return errors.New("insufficient JUL in exchange")
+func (bc *Blockchain) SaveToDisk(filename string) error {
+	state := BlockchainState{
+		Blocks:  bc.Blocks,
+		Wallets: bc.Wallets,
 	}
 
-	account, exists := bc.Accounts[accountAddress]
-	if !exists {
-		return errors.New("account not found")
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling blockchain state: %v", err)
 	}
 
-	bc.Exchange.Balance -= julAmount
-	account.Balance += julAmount
+	err = ioutil.WriteFile(filename, data, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing blockchain state to file: %v", err)
+	}
 
 	return nil
 }
 
-func (bc *Blockchain) GetMempool() []Transaction {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	return bc.Mempool
-}
-
-func (bc *Blockchain) selectValidator() string {
-	// Simple stake-weighted random selection
-	totalStake := int64(0)
-	for _, account := range bc.Accounts {
-		totalStake += account.Stake
+func LoadBlockchainFromDisk(filename string) (*Blockchain, error) {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("error reading blockchain state from file: %v", err)
 	}
 
-	if totalStake == 0 {
-		// If no stakes, select randomly
-		for address := range bc.Accounts {
-			return address
+	var state BlockchainState
+	err = json.Unmarshal(data, &state)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshaling blockchain state: %v", err)
+	}
+
+	bc := &Blockchain{
+		Blocks:  state.Blocks,
+		PoS:     consensus.NewPoS(),
+		Mempool: []*Transaction{},
+		Wallets: state.Wallets,
+	}
+
+	// Reconstruct the PoS state
+	for _, block := range bc.Blocks {
+		if validator, exists := bc.Wallets[block.Validator]; exists {
+			bc.PoS.AddValidator(block.Validator, uint64(validator))
 		}
 	}
 
-	randomStake := time.Now().UnixNano() % totalStake
-	cumulativeStake := int64(0)
-	for address, account := range bc.Accounts {
-		cumulativeStake += account.Stake
-		if cumulativeStake > randomStake {
-			return address
-		}
-	}
-
-	// This should never happen, but return the first account if it does
-	for address := range bc.Accounts {
-		return address
-	}
-	return ""
-}
-
-func calculateHash(index, timestamp int64, transactions []Transaction, prevHash, validator string, stake int64) string {
-	record := string(index) + string(timestamp) + string(stake) + prevHash + validator
-	for _, tx := range transactions {
-		record += tx.From + tx.To + string(tx.Amount) + string(tx.Fee)
-	}
-	hash := sha256.Sum256([]byte(record))
-	return hex.EncodeToString(hash[:])
-}
-
-func generateAddress() string {
-	// This is a simplified address generation.
-	// In a real implementation, you'd use proper cryptographic methods.
-	hash := sha256.Sum256([]byte(time.Now().String()))
-	return hex.EncodeToString(hash[:])[:40]
-}
-
-type Account struct {
-	Name    string
-	Address string
-	Balance int64
-	Stake   int64
-}
-
-func (bc *Blockchain) AddStake(address string, amount int64) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	account, exists := bc.Accounts[address]
-	if !exists {
-		return errors.New("account not found")
-	}
-
-	if account.Balance < amount {
-		return errors.New("insufficient balance to stake")
-	}
-
-	account.Balance -= amount
-	account.Stake += amount
-
-	return nil
-}
-
-func (bc *Blockchain) RemoveStake(address string, amount int64) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	account, exists := bc.Accounts[address]
-	if !exists {
-		return errors.New("account not found")
-	}
-
-	if account.Stake < amount {
-		return errors.New("insufficient stake to remove")
-	}
-
-	account.Stake -= amount
-	account.Balance += amount
-
-	return nil
-}
-
-func (bc *Blockchain) MintInitialSupply(address string, amount int64) error {
-	account, exists := bc.Accounts[address]
-	if !exists {
-		return fmt.Errorf("account %s does not exist", address)
-	}
-	account.Balance += amount
-	return nil
-}
-
-func (bc *Blockchain) GetAccounts() []*Account {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	accounts := make([]*Account, 0, len(bc.Accounts))
-	for _, account := range bc.Accounts {
-		accounts = append(accounts, account)
-	}
-	return accounts
-}
-
-func (bc *Blockchain) GetChain() []*Block {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	return bc.Chain
+	return bc, nil
 }

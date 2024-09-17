@@ -1,60 +1,88 @@
 package blockchain
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/hex"
-	"strconv"
+	"fmt"
 	"time"
-)
-
-const (
-	JUL            = 1
-	MICRO          = JUL / 1000000
-	NANO           = JUL / 1000000000
-	PICO           = JUL / 1000000000000
-	BlockTime      = 30 * time.Second
-	ExchangeRate   = 35 // 35 JUL to 1 QAR
-	InitialSupply  = 1000000 * JUL
 )
 
 type Block struct {
 	Index        int64
 	Timestamp    int64
-	Transactions []Transaction
-	PrevHash     string
+	Transactions []*Transaction
+	PreviousHash string
 	Hash         string
 	Validator    string
-	Stake        int64
+	// Remove the Reward field
 }
 
-type Transaction struct {
-	From   string
-	To     string
-	Amount int64 // Amount in Nanojoules
-	Nonce  uint64
-	Fee    int64
-}
-
-func NewBlock(index int64, transactions []Transaction, prevHash string, validator string, stake int64) *Block {
-	block := &Block{
+func CreateBlock(index int64, transactions []*Transaction, previousHash string, validator string) Block {
+	block := Block{
 		Index:        index,
 		Timestamp:    time.Now().Unix(),
 		Transactions: transactions,
-		PrevHash:     prevHash,
+		PreviousHash: previousHash,
 		Validator:    validator,
-		Stake:        stake,
+		// Remove the Reward calculation
 	}
-	block.Hash = block.CalculateHash()
+	block.Hash = CalculateHash(block)
 	return block
 }
 
-func (b *Block) CalculateHash() string {
-	record := strconv.FormatInt(b.Index, 10) + strconv.FormatInt(b.Timestamp, 10) + b.PrevHash + b.Validator + strconv.FormatInt(b.Stake, 10)
-	for _, tx := range b.Transactions {
-		record += tx.From + tx.To + strconv.FormatInt(tx.Amount, 10)
-	}
+func CalculateHash(block Block) string {
+	record := fmt.Sprintf("%d%d%v%s%s", block.Index, block.Timestamp, block.Transactions, block.PreviousHash, block.Validator)
 	h := sha256.New()
 	h.Write([]byte(record))
 	hashed := h.Sum(nil)
 	return hex.EncodeToString(hashed)
+}
+
+func (b *Block) IsValid(previousBlock *Block) bool {
+	if previousBlock != nil {
+		if b.Index != previousBlock.Index+1 {
+			return false
+		}
+		if b.PreviousHash != previousBlock.Hash {
+			return false
+		}
+		if b.Timestamp <= previousBlock.Timestamp {
+			return false
+		}
+	}
+	if CalculateHash(*b) != b.Hash {
+		return false
+	}
+	return true
+}
+
+func (b *Block) HasValidTransactions() bool {
+	transactionHashes := []string{}
+	for _, tx := range b.Transactions {
+		publicKey := &ecdsa.PublicKey{
+			Curve: elliptic.P256(),
+			X:     tx.PublicKey.X,
+			Y:     tx.PublicKey.Y,
+		}
+		if !VerifyTransaction(tx, publicKey) {
+			return false
+		}
+		if contains(transactionHashes, tx.ID) {
+			return false // Double-spending attempt
+		}
+		transactionHashes = append(transactionHashes, tx.ID)
+	}
+	return true
+}
+
+// Helper function to check if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, a := range slice {
+		if a == item {
+			return true
+		}
+	}
+	return false
 }
