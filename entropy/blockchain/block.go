@@ -82,6 +82,11 @@ func (b *Block) HasValidTransactions() bool {
 			return false // Double-spending attempt
 		}
 		transactionHashes = append(transactionHashes, tx.ID)
+
+		// Verify that the fee is correct
+		if tx.Fee != tx.Amount * TransactionFeePercentage {
+			return false
+		}
 	}
 	return true
 }

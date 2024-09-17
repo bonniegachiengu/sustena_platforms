@@ -119,7 +119,7 @@ func (bc *Blockchain) getTransactionsFromMempool() []*Transaction {
 
 func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
 	if wallet, exists := bc.Wallets[tx.From]; exists {
-		if wallet.GetBalance() >= tx.Amount {
+		if wallet.GetBalance() >= tx.Amount + tx.Fee { // Check if balance covers amount + fee
 			// Convert PublicKeyJSON to ecdsa.PublicKey
 			publicKey := &ecdsa.PublicKey{
 				Curve: elliptic.P256(),
@@ -150,7 +150,7 @@ func (bc *Blockchain) validateTransaction(tx *Transaction) bool {
 			
 			return true
 		} else {
-			utils.LogError(utils.NewError(fmt.Sprintf("Insufficient balance for %s: has %.2f, needs %.2f", tx.From, wallet.GetBalance(), tx.Amount)))
+			utils.LogError(utils.NewError(fmt.Sprintf("Insufficient balance for %s: has %.2f, needs %.2f (including fee)", tx.From, wallet.GetBalance(), tx.Amount + tx.Fee)))
 			return false
 		}
 	} else {
@@ -165,12 +165,11 @@ func (bc *Blockchain) processTransactions(block Block) {
 		toWallet := bc.EnsureWallet(tx.To)
 		validatorWallet := bc.EnsureWallet(block.Validator)
 
-		fromWallet.DeductBalance(tx.Amount)
+		fromWallet.DeductBalance(tx.Amount + tx.Fee)
 		toWallet.AddBalance(tx.Amount)
 		
-		// Add a small fee to the validator as an incentive
-		fee := tx.Amount * 0.001 // 0.1% fee
-		validatorWallet.AddBalance(fee)
+		// Add the fee to the validator's balance
+		validatorWallet.AddBalance(tx.Fee)
 	}
 }
 

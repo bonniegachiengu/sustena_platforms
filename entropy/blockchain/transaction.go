@@ -10,11 +10,14 @@ import (
 	"time"
 )
 
+const TransactionFeePercentage = 0.001 // 0.1% fee
+
 type Transaction struct {
 	ID        string
 	From      string
 	To        string
 	Amount    float64
+	Fee       float64 // Add this field
 	Timestamp int64
 	Signature []byte
 	PublicKey *PublicKeyJSON
@@ -54,10 +57,12 @@ func NewTransaction(wallet *Wallet, to string, amount float64) (*Transaction, er
 	if wallet == nil {
 		return nil, fmt.Errorf("wallet is nil")
 	}
+	fee := amount * TransactionFeePercentage
 	tx := &Transaction{
 		From:      wallet.GetAddress(),
 		To:        to,
 		Amount:    amount,
+		Fee:       fee, // Set the fee
 		Timestamp: time.Now().Unix(),
 		PublicKey: &PublicKeyJSON{X: wallet.PublicKey.X, Y: wallet.PublicKey.Y},
 	}
@@ -72,7 +77,7 @@ func NewTransaction(wallet *Wallet, to string, amount float64) (*Transaction, er
 
 // Ensure this function is exported (starts with a capital letter)
 func CalculateTransactionHash(tx *Transaction) string {
-	record := fmt.Sprintf("%s%s%f%d", tx.From, tx.To, tx.Amount, tx.Timestamp)
+	record := fmt.Sprintf("%s%s%f%f%d", tx.From, tx.To, tx.Amount, tx.Fee, tx.Timestamp)
 	h := sha256.New()
 	h.Write([]byte(record))
 	hashed := h.Sum(nil)

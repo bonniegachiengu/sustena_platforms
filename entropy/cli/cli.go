@@ -132,11 +132,23 @@ func (cli *CLI) sendTransaction() {
 		return
 	}
 
+	fmt.Printf("Transaction fee: %.2f JUL\n", tx.Fee)
+	fmt.Printf("Total amount (including fee): %.2f JUL\n", tx.Amount + tx.Fee)
+
+	// Ask for confirmation
+	fmt.Print("Do you want to proceed with this transaction? (y/n): ")
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(confirm)
+	if confirm != "y" && confirm != "Y" {
+		fmt.Println("Transaction cancelled")
+		return
+	}
+
 	if cli.Node.Blockchain.AddTransaction(tx) {
 		cli.Node.P2P.BroadcastTransaction(cli.Node.ID, tx)
-		utils.LogInfo(fmt.Sprintf("Transaction added and broadcasted: %s -> %s, Amount: %.2f JUL", from, to, amount))
+		utils.LogInfo(fmt.Sprintf("Transaction added and broadcasted: %s -> %s, Amount: %.2f JUL, Fee: %.2f JUL", from, to, tx.Amount, tx.Fee))
 	} else {
-		utils.LogError(utils.NewError(fmt.Sprintf("Failed to add transaction: %s -> %s, Amount: %.2f JUL", from, to, amount)))
+		utils.LogError(utils.NewError(fmt.Sprintf("Failed to add transaction: %s -> %s, Amount: %.2f JUL, Fee: %.2f JUL", from, to, tx.Amount, tx.Fee)))
 	}
 }
 
