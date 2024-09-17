@@ -11,6 +11,7 @@ import (
 )
 
 type Block struct {
+	ID           int64
 	Index        int64
 	Timestamp    int64
 	Transactions []*Transaction
@@ -20,10 +21,25 @@ type Block struct {
 	// Remove the Reward field
 }
 
-func CreateBlock(index int64, transactions []*Transaction, previousHash string, validator string) Block {
+func CreateBlock(index int64, transactions []*Transaction, previousHash string, validator string, lastBlock *Block) Block {
+	const minBlockInterval = 10
+	var lastBlockTime int64
+
+	if lastBlock != nil {
+		lastBlockTime = lastBlock.Timestamp
+	} else {
+		// For genesis block, use current time minus the interval
+		lastBlockTime = time.Now().Unix() - minBlockInterval
+	}
+
+	currentTime := time.Now().Unix()
+	if currentTime - lastBlockTime < minBlockInterval {
+		time.Sleep(time.Duration(minBlockInterval - (currentTime - lastBlockTime)) * time.Second)
+	}
+
 	block := Block{
 		Index:        index,
-		Timestamp:    time.Now().UnixNano(), // Use nanoseconds for more precision
+		Timestamp:    time.Now().UnixNano(),
 		Transactions: transactions,
 		PreviousHash: previousHash,
 		Validator:    validator,

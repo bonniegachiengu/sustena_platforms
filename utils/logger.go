@@ -51,3 +51,11 @@ func LogInfo(message string) {
 func LogError(err error) {
 	ErrorLogger.Println(err)
 }
+
+func LogDebug(message string) {
+	log.Printf("DEBUG: %s\n", message)
+}
+
+func LogWarning(message string) {
+	log.Printf("WARNING: %s\n", message)
+}

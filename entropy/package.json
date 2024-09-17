@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/react": "^18.3.7"
+  }
+}

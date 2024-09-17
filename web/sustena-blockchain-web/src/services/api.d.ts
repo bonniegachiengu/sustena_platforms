@@ -1,0 +1,10 @@
+export function getBlockchain(): Promise<any>;
+export function createWallet(): Promise<any>;
+export function getBalance(address: string): Promise<any>;
+export function sendTransaction(from: string, to: string, amount: number): Promise<any>;
+export function forgeBlock(): Promise<any>;
+export function stakeJUL(address: string, amount: number): Promise<any>;
+export function unstakeJUL(address: string, amount: number): Promise<any>;
+export function getCommunityFund(): Promise<any>;
+export function getValidators(): Promise<any>;
+export function purchaseJUL(address: string, usdAmount: number): Promise<any>;

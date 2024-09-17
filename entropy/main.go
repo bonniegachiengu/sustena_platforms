@@ -2,38 +2,35 @@ package main
 
 import (
 	"sustena_platforms/entropy/blockchain"
-	"sustena_platforms/entropy/cli"
-	"sustena_platforms/entropy/mycelium"
-	"sustena_platforms/entropy/node"
+	"sustena_platforms/api"
 	"sustena_platforms/utils"
+	"fmt"
+	"path/filepath"
+	"os"
 )
 
-const stateFile = "blockchain_state.json"
-
 func main() {
-	utils.LogInfo("Starting Sustena Platforms")
-	
-	// Create P2P network
-	network := mycelium.NewP2PNetwork()
+	utils.LogInfo("Starting Sustena Blockchain application...")
 
-	// Create a single node for now
-	node := node.NewNode("node1", 8001, stateFile)
+	entropyDir := filepath.Join(".", "entropy")
+	err := os.MkdirAll(entropyDir, os.ModePerm)
+	if err != nil {
+		fmt.Printf("Error creating entropy directory: %v\n", err)
+		return
+	}
 
-	// Add node to the network
-	network.AddPeer(node.ID, node.Blockchain)
+	dbPath := filepath.Join(entropyDir, "blockchain.db")
+	fmt.Printf("Initializing blockchain with database path: %s\n", dbPath)
 
-	// Set P2P network for the node
-	node.SetP2PNetwork(network)
+	bc, err := blockchain.NewBlockchain(dbPath)
+	if err != nil {
+		fmt.Printf("Error creating blockchain: %v\n", err)
+		return
+	}
 
-	// Add wallet manager to the node
-	node.SetWalletManager(blockchain.NewWalletManager())
+	fmt.Println("Blockchain initialized successfully")
 
-	// Start the node
-	node.Start()
-
-	// Create and run the CLI
-	cli := cli.NewCLI(node)
-	cli.Run()
-
-	utils.LogInfo("Sustena Platforms shutting down")
+	server := api.NewServer(bc)
+	fmt.Println("Starting Sustena Blockchain server...")
+	server.Start(8080)
 }

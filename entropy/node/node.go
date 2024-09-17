@@ -17,8 +17,11 @@ type Node struct {
 	mux           *http.ServeMux
 }
 
-func NewNode(id string, port int, stateFile string) *Node {
-	bc := blockchain.NewBlockchain(stateFile)
+func NewNode(id string, port int, dbPath string) (*Node, error) {
+	bc, err := blockchain.NewBlockchain(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("error creating blockchain: %v", err)
+	}
 	p2p := mycelium.NewP2PNetwork()
 	return &Node{
 		ID:         id,
@@ -26,7 +29,7 @@ func NewNode(id string, port int, stateFile string) *Node {
 		Blockchain: bc,
 		P2P:        p2p,
 		mux:        http.NewServeMux(),
-	}
+	}, nil
 }
 
 func (n *Node) SetWalletManager(wm *blockchain.WalletManager) {
