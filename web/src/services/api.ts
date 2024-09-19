@@ -48,6 +48,20 @@ export const getValidators = async () => {
 };
 
 export const purchaseJUL = async (address: string, usdAmount: number) => {
-  const response = await axios.post(`${API_URL}/purchaseJUL`, { wallet: address, usdAmount });
+  const response = await fetch('/api/purchaseJUL', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ address, usdAmount }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to purchase JUL');
+  }
+  return response.json();
+};
+
+export const getMempool = async () => {
+  const response = await axios.get(`${API_URL}/mempool`);
   return response.data;
 };

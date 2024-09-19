@@ -144,3 +144,12 @@ func (pos *PoS) SlashValidator(address string) float64 {
 func (pos *PoS) GetCommunityFund() float64 {
 	return pos.CommunityFund
 }
+
+// Add this method to the PoS struct if it doesn't exist
+func (pos *PoS) GetValidators() []Validator {
+	validators := make([]Validator, 0, len(pos.Validators))
+	for _, v := range pos.Validators {
+		validators = append(validators, v)
+	}
+	return validators
+}

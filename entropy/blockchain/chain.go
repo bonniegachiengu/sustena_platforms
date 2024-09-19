@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 )
 
+var _ = (*Blockchain).getTransactionsForBlock
+
 type Blockchain struct {
 	Blocks    []*Block
 	PoS       *consensus.PoS
@@ -46,9 +48,20 @@ func NewBlockchain(dbPath string) (*Blockchain, error) {
 		return nil, fmt.Errorf("error initializing database: %v", err)
 	}
 
-	err = bc.loadBlocksFromDB()
+	err = bc.LoadState()
 	if err != nil {
-		return nil, fmt.Errorf("error loading blocks from database: %v", err)
+		return nil, fmt.Errorf("error loading blockchain state: %v", err)
+	}
+
+	// If no blocks exist, create a genesis block
+	if len(bc.Blocks) == 0 {
+		genesisBlock := CreateBlock(0, []*Transaction{}, "", "Genesis", nil)
+		bc.Blocks = append(bc.Blocks, &genesisBlock)
+		// Save genesis block to database
+		err = bc.saveBlockToDB(&genesisBlock)
+		if err != nil {
+			return nil, fmt.Errorf("error saving genesis block: %v", err)
+		}
 	}
 
 	return bc, nil
@@ -83,6 +96,7 @@ func (bc *Blockchain) initDB() error {
 	return err
 }
 
+//lint:ignore U1000 This function is used in database initialization
 func (bc *Blockchain) loadBlocksFromDB() error {
 	rows, err := bc.db.Query("SELECT id, `index`, timestamp, previous_hash, hash, validator FROM blocks ORDER BY `index`")
 	if err != nil {
@@ -126,11 +140,29 @@ func (bc *Blockchain) getTransactionsForBlock(blockID int64) ([]*Transaction, er
 	return transactions, rows.Err()
 }
 
-// Add this new method
-func (bc *Blockchain) AddValidator(address string, stake float64) {
-	if wallet, exists := bc.Wallets[address]; exists {
-		bc.PoS.AddValidator(address, stake, wallet.GetTotalBalance())
-	}
+// Modify the AddValidator method
+func (bc *Blockchain) AddValidator(address string, stake float64) error {
+    wallet, exists := bc.Wallets[address]
+    if !exists {
+        return fmt.Errorf("wallet not found for address: %s", address)
+    }
+    bc.PoS.AddValidator(address, stake, wallet.GetTotalBalance())
+    return nil // AddValidator in PoS doesn't return an error, so we don't need to return it here
+}
+
+// Modify the UpdateValidatorStake method
+func (bc *Blockchain) UpdateValidatorStake(address string, newStake float64) error {
+    wallet, exists := bc.Wallets[address]
+    if !exists {
+        return fmt.Errorf("wallet not found for address: %s", address)
+    }
+    bc.PoS.UpdateStake(address, newStake, wallet.GetTotalBalance())
+    return nil // UpdateStake in PoS doesn't return an error, so we don't need to return it here
+}
+
+// Add this method to get the current mempool
+func (bc *Blockchain) GetMempool() []*Transaction {
+	return bc.Mempool
 }
 
 // Modify AddBlock to save to database
@@ -153,40 +185,7 @@ func (bc *Blockchain) AddBlock(validator string) error {
 		return err
 	}
 	
-	tx, err := bc.db.Begin()
-	if err != nil {
-		return err
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO blocks (`index`, timestamp, previous_hash, hash, validator) VALUES (?, ?, ?, ?, ?)")
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	defer stmt.Close()
-
-	result, err := stmt.Exec(newBlock.Index, newBlock.Timestamp, newBlock.PreviousHash, newBlock.Hash, newBlock.Validator)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	blockID, err := result.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	for _, transaction := range newBlock.Transactions {
-		_, err = tx.Exec("INSERT INTO transactions (block_id, tx_id, from_address, to_address, amount, fee) VALUES (?, ?, ?, ?, ?, ?)",
-			blockID, transaction.ID, transaction.From, transaction.To, transaction.Amount, transaction.Fee)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-
-	err = tx.Commit()
+	err := bc.saveBlockToDB(&newBlock)
 	if err != nil {
 		return err
 	}
@@ -403,67 +402,78 @@ func (bc *Blockchain) GetLatestBlock() *Block {
 
 type BlockchainState struct {
 	Blocks  []*Block
-	Wallets map[string]float64
+	Wallets map[string]*Wallet
 }
 
-func (bc *Blockchain) SaveToDisk(filename string) error {
-	walletBalances := make(map[string]float64)
-	for address, wallet := range bc.Wallets {
-		walletBalances[address] = wallet.GetBalance()
-	}
-	
-	state := BlockchainState{
+func (bc *Blockchain) SaveState() error {
+	state := struct {
+		Blocks  []*Block
+		Wallets map[string]struct {
+			Balance float64
+			Staked  float64
+		}
+	}{
 		Blocks:  bc.Blocks,
-		Wallets: walletBalances,
+		Wallets: make(map[string]struct {
+			Balance float64
+			Staked  float64
+		}),
+	}
+
+	for address, wallet := range bc.Wallets {
+		state.Wallets[address] = struct {
+			Balance float64
+			Staked  float64
+		}{
+			Balance: wallet.GetBalance(),
+			Staked:  wallet.Staked,
+		}
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error marshaling blockchain state: %v", err)
 	}
-
-	err = ioutil.WriteFile(filename, data, 0644)
-	if err != nil {
-		return fmt.Errorf("error writing blockchain state to file: %v", err)
-	}
-
-	return nil
+	return ioutil.WriteFile("blockchain_state.json", data, 0644)
 }
 
-func LoadBlockchainFromDisk(filename string) (*Blockchain, error) {
-	data, err := ioutil.ReadFile(filename)
+func (bc *Blockchain) LoadState() error {
+	data, err := ioutil.ReadFile("blockchain_state.json")
 	if err != nil {
-		return nil, fmt.Errorf("error reading blockchain state from file: %v", err)
+		if os.IsNotExist(err) {
+			// If the file doesn't exist, it's not an error, just return
+			return nil
+		}
+		return fmt.Errorf("error reading blockchain state file: %v", err)
 	}
 
-	var state BlockchainState
-	err = json.Unmarshal(data, &state)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling blockchain state: %v", err)
-	}
-
-	bc := &Blockchain{
-		Blocks:  state.Blocks,
-		PoS:     consensus.NewPoS(),
-		Mempool: []*Transaction{},
-		Wallets: make(map[string]*Wallet),
-	}
-
-	// Convert float64 balances to Wallet objects
-	for address, balance := range state.Wallets {
-		wallet := NewWallet()
-		wallet.SetBalance(balance)
-		bc.Wallets[address] = wallet
-	}
-
-	// Reconstruct the PoS state
-	for _, block := range bc.Blocks {
-		if wallet, exists := bc.Wallets[block.Validator]; exists {
-			bc.PoS.AddValidator(block.Validator, wallet.GetStakedAmount(), wallet.GetTotalBalance())
+	var state struct {
+		Blocks  []*Block
+		Wallets map[string]struct {
+			Balance float64
+			Staked  float64
 		}
 	}
 
-	return bc, nil
+	err = json.Unmarshal(data, &state)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling blockchain state: %v", err)
+	}
+
+	bc.Blocks = state.Blocks
+	bc.Wallets = make(map[string]*Wallet)
+
+	for address, walletData := range state.Wallets {
+		wallet := NewWallet()
+		wallet.SetBalance(walletData.Balance)
+		wallet.Staked = walletData.Staked
+		bc.Wallets[address] = wallet
+
+		// Reconstruct the PoS state
+		bc.PoS.AddValidator(address, wallet.Staked, wallet.GetTotalBalance())
+	}
+
+	return nil
 }
 
 // Add this method
@@ -474,42 +484,51 @@ func (bc *Blockchain) RegisterWallet(wallet *Wallet) {
 	utils.LogInfo(fmt.Sprintf("Registered wallet with address %s", address))
 }
 
-// Add this method to the Blockchain struct
-func (bc *Blockchain) SaveState() error {
-	state := BlockchainState{
-		Blocks:  bc.Blocks,
-		Wallets: make(map[string]float64),
-	}
-	for address, wallet := range bc.Wallets {
-		state.Wallets[address] = wallet.GetBalance()
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("error marshaling blockchain state: %v", err)
-	}
-	return ioutil.WriteFile("blockchain_state.json", data, 0644)
-}
-
 func (bc *Blockchain) GetAllBlocks() ([]*Block, error) {
-	rows, err := bc.db.Query("SELECT id, `index`, timestamp, previous_hash, hash, validator FROM blocks ORDER BY `index` DESC")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var blocks []*Block
-	for rows.Next() {
-		var block Block
-		err := rows.Scan(&block.ID, &block.Index, &block.Timestamp, &block.PreviousHash, &block.Hash, &block.Validator)
-		if err != nil {
-			return nil, err
-		}
-		block.Transactions, err = bc.getTransactionsForBlock(block.ID)
-		if err != nil {
-			return nil, err
-		}
-		blocks = append(blocks, &block)
-	}
-
-	return blocks, rows.Err()
+	return bc.Blocks, nil
 }
+
+// Add this method to the Blockchain struct
+func (bc *Blockchain) GetValidators() []consensus.Validator {
+	return bc.PoS.GetValidators()
+}
+
+// Add this new method to the Blockchain struct
+func (bc *Blockchain) saveBlockToDB(block *Block) error {
+	tx, err := bc.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO blocks (`index`, timestamp, previous_hash, hash, validator) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+
+	result, err := stmt.Exec(block.Index, block.Timestamp, block.PreviousHash, block.Hash, block.Validator)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	blockID, err := result.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Insert transactions
+	for _, transaction := range block.Transactions {
+		_, err = tx.Exec("INSERT INTO transactions (block_id, tx_id, from_address, to_address, amount, fee) VALUES (?, ?, ?, ?, ?, ?)",
+			blockID, transaction.ID, transaction.From, transaction.To, transaction.Amount, transaction.Fee)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+

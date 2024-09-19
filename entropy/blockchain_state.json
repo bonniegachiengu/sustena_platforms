@@ -1,16 +1,23 @@
 {
   "Blocks": [
     {
+      "ID": 0,
       "Index": 0,
-      "Timestamp": 1726591066907995300,
-      "Transactions": null,
+      "Timestamp": 1726780541700492000,
+      "Transactions": [],
       "PreviousHash": "",
-      "Hash": "1c486cd5604ac96cfdd4d74d9cf679c722f29c8e879f707c44c50b582e884879",
-      "Validator": ""
+      "Hash": "90110d34f2029b6198ae637c216624afb01c4a394ad3b9b54d6f86ee6858a84a",
+      "Validator": "Genesis"
     }
   ],
   "Wallets": {
-    "bb01742dfa67389876e7d1cf08a0bf59e8ebd602f39053180972faa27b92d22c": 40000,
-    "db37cbe99382eca992744e5689eb745d0647655d971bee2f6fdd9c8d9bd7651c": 15550
+    "7510679dfb7629f1c8b10423c828dd1215e2aa60c4d64388724655c7affd291f": {
+      "Balance": 23305,
+      "Staked": 0
+    },
+    "f47c0456c909b465f523d6613d6f67ff13a7935c2ad8191bbbc68ccc6f86db79": {
+      "Balance": 3600,
+      "Staked": 0
+    }
   }
 }

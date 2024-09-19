@@ -62,7 +62,7 @@ func NewTransaction(wallet *Wallet, to string, amount float64) (*Transaction, er
 		From:      wallet.GetAddress(),
 		To:        to,
 		Amount:    amount,
-		Fee:       fee, // Set the fee
+		Fee:       fee,
 		Timestamp: time.Now().Unix(),
 		PublicKey: &PublicKeyJSON{X: wallet.PublicKey.X, Y: wallet.PublicKey.Y},
 	}

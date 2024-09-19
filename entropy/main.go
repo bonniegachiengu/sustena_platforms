@@ -32,5 +32,7 @@ func main() {
 
 	server := api.NewServer(bc)
 	fmt.Println("Starting Sustena Blockchain server...")
+
+	// Start the server
 	server.Start(8080)
 }
