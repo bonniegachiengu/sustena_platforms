@@ -1,6 +1,6 @@
 # Sustena Platforms
 
-Sustena Platforms is a comprehensive blockchain-based system that integrates multiple components to create a robust and flexible decentralized platform.
+Sustena Platforms is a comprehensive blockchain-based system that integrates multiple components to create a robust and flexible decentralized platform for a wide range of applications in a Decentralized Economy (DeMarket).
 
 ## Components
 
@@ -14,7 +14,7 @@ Sustena Platforms is a comprehensive blockchain-based system that integrates mul
 3. **Embroidery**: A smart contract language and compiler
    - Allows for writing and deploying custom smart contracts
 
-4. **P2P Network**: Decentralized peer-to-peer communication
+4. **Mycelium**: Decentralized peer-to-peer communication
    - Utilizes libp2p for robust networking capabilities
 
 ## Getting Started
@@ -42,7 +42,7 @@ Sustena Platforms is a comprehensive blockchain-based system that integrates mul
 
 ### Configuration
 
-The project uses a YAML configuration file located at `config/config.yaml`. Modify this file to adjust network and API settings.
+Not defined yet.
 
 ### Running the Project
 
@@ -58,7 +58,7 @@ go run main.go
 - Custom virtual machine for executing smart contracts
 - P2P networking for decentralized communication
 - API server for interacting with the platform
-- Configuration management using Viper
+- Other features will be defined later.
 
 ## Contributing
 

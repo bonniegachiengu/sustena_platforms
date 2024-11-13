@@ -1,73 +1,39 @@
 package main
 
 import (
-	"fmt"
-	"log"
-
-	"github.com/bonniegachiengu/sustena_platforms/entropy/blockchain"
-	"github.com/bonniegachiengu/sustena_platforms/entropy/consensus"
+	"sustena_platforms/entropy/blockchain"
+	"sustena_platforms/entropy/cli"
+	"sustena_platforms/entropy/mycelium"
+	"sustena_platforms/entropy/node"
+	"sustena_platforms/utils"
 )
 
+const stateFile = "blockchain_state.json"
+
 func main() {
-	fmt.Println("Entropy - Sustena Platform's Blockchain Component")
+	utils.LogInfo("Starting Sustena Platforms")
+	
+	// Create P2P network
+	network := mycelium.NewP2PNetwork()
 
-	// Initialize blockchain
-	bc := blockchain.NewBlockchain()
+	// Create a single node for now
+	node := node.NewNode("node1", 8001, stateFile)
 
-	// Initialize Proof of Stake consensus
-	pos := consensus.NewProofOfStake()
+	// Add node to the network
+	network.AddPeer(node.ID, node.Blockchain)
 
-	// Add some validators
-	pos.AddValidator("Validator1", 100)
-	pos.AddValidator("Validator2", 200)
-	pos.AddValidator("Validator3", 300)
+	// Set P2P network for the node
+	node.SetP2PNetwork(network)
 
-	// Create and add some blocks
-	for i := 1; i <= 5; i++ {
-		// Create a sample transaction
-		tx := blockchain.Transaction{
-			From:   fmt.Sprintf("User%d", i),
-			To:     fmt.Sprintf("User%d", i+1),
-			Amount: int64(i * 10),
-		}
+	// Add wallet manager to the node
+	node.SetWalletManager(blockchain.NewWalletManager())
 
-		// Select a validator
-		validator := pos.SelectValidator()
-		stake := pos.Validators[validator]
+	// Start the node
+	node.Start()
 
-		// Create a new block
-		lastBlock := bc.GetLastBlock()
-		newBlock := blockchain.NewBlock(
-			lastBlock.Index+1,
-			[]blockchain.Transaction{tx},
-			lastBlock.Hash,
-			validator,
-			stake,
-		)
+	// Create and run the CLI
+	cli := cli.NewCLI(node)
+	cli.Run()
 
-		// Add the block to the blockchain
-		err := bc.AddBlock(newBlock)
-		if err != nil {
-			log.Printf("Error adding block: %v", err)
-			continue
-		}
-
-		fmt.Printf("Block %d added by validator %s with stake %d\n", i, newBlock.Validator, newBlock.Stake)
-
-		// Validate the block
-		if pos.Validate(newBlock) {
-			fmt.Println("Block is valid")
-		} else {
-			fmt.Println("Block is invalid")
-		}
-
-		fmt.Println("--------------------")
-	}
-
-	// Print the final state of the blockchain
-	fmt.Println("Final Blockchain State:")
-	for _, block := range bc.Chain {
-		fmt.Printf("Block %d: Hash: %s, Validator: %s, Stake: %d\n", 
-			block.Index, block.Hash[:10], block.Validator, block.Stake)
-	}
+	utils.LogInfo("Sustena Platforms shutting down")
 }

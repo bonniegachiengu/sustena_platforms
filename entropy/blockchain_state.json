@@ -1,0 +1,40 @@
+{
+  "Blocks": [
+    {
+      "Index": 0,
+      "Timestamp": 1726558873,
+      "Transactions": [],
+      "PreviousHash": "",
+      "Hash": "d1c365bb3631d4eefb6bd3dee9289a0d7d3b925ec474fec5d8fdf8c9e4ee3455",
+      "Validator": ""
+    },
+    {
+      "Index": 1,
+      "Timestamp": 1726558874,
+      "Transactions": [
+        {
+          "ID": "79da1196f3d8fde0cfd42cf167a5f80cccf88363c966308e26f72de451601397",
+          "From": "839a3f958ce41cf7cdd6292938ccdd9b1add47645d9a0a3933fe99a04c7d577c",
+          "To": "b8511d015a5860e77424eab462d2742bea4a45a80e1895315306c872a10e6f47",
+          "Amount": 10,
+          "Timestamp": 1726558874,
+          "Signature": "xsFmY3JmDULax5sH7wg5s/TXi8xRXRErlabPwkawRZtXgVAiaTgzP6PjFSlbObNOLuUpUcR5VspHlMqklAPwOQ==",
+          "PublicKey": {
+            "Curve": {},
+            "X": 27710907385362382061134258088701221976328659587027405372341108499794088799546,
+            "Y": 54962954270496124743864282969517036155040015621081881013183281328060742840415
+          }
+        }
+      ],
+      "PreviousHash": "d1c365bb3631d4eefb6bd3dee9289a0d7d3b925ec474fec5d8fdf8c9e4ee3455",
+      "Hash": "330b3063aa93f7cfa57a6ad4e9e407b28bf76b9e30743ff23c84a5a32eac887b",
+      "Validator": "b3b91c105c60cca30f462cf5bce3cbc6c7022a8895cd741f03dd562d61117b81"
+    }
+  ],
+  "Wallets": {
+    "0a77a7f8579d524bd104cdc9b63b140b148dd6f443d53abd570ac52136d4ad07": 750,
+    "839a3f958ce41cf7cdd6292938ccdd9b1add47645d9a0a3933fe99a04c7d577c": 490,
+    "b3b91c105c60cca30f462cf5bce3cbc6c7022a8895cd741f03dd562d61117b81": 0.01,
+    "d305bf23a0d2e62b740616620c86b46f0de25f99e34b9c1fd2a26138b1d68b29": 1010
+  }
+}
